@@ -63,4 +63,4 @@ installs touch:
 ## 🧪 Tests
 
 `tests/` holds helm-unittest suites, and `test/chart/checks.sh` runs them with `helm lint` and
-kubeconform.
+kubeconform. `test/e2e/` drives failover, fencing, switchover and a point-in-time restore on kind.

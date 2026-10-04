@@ -1,6 +1,7 @@
 name: Checks
-# The repository's own checks, as one job: the agent image build and the
-# chart checks (lint, kubeconform, schema and unit tests). Every tool is a
+# The repository's own checks, as one job: the agent image build, the chart
+# checks (lint, kubeconform, schema and unit tests) and the kind end-to-end
+# suites (failover and backup with point-in-time restore). Every tool is a
 # pinned release checked against its published SHA-256.
 #
 # Pull requests only, and not while the PR is a draft.
@@ -20,12 +21,16 @@ env:
   KUBECONFORM_SHA256: 9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
   HELM_UNITTEST_VERSION: 1.2.1
   HELM_UNITTEST_SHA256: 48e86ecc1467b009630e5954375e5d8494139f73b466df5fe8c04fa45b634939
+  KIND_VERSION: v0.33.0
+  KIND_SHA256: aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d
+  CERT_MANAGER_VERSION: v1.21.2
+  CERT_MANAGER_SHA256: e03b668ec8675214af6b0a671699d088f2601fa3878e0dbe1b41d3feafd1879f
 jobs:
   checks:
     name: 🧪 Checks
     if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -52,3 +57,32 @@ jobs:
 
       - name: ⎈ Chart checks
         run: bash test/chart/checks.sh
+
+      - name: 📦 Create the kind cluster
+        run: |
+          set -euo pipefail
+          curl -fsSLo "$RUNNER_TEMP/bin/kind" "https://github.com/kubernetes-sigs/kind/releases/download/${KIND_VERSION}/kind-linux-amd64"
+          echo "${KIND_SHA256}  $RUNNER_TEMP/bin/kind" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/bin/kind"
+          kind create cluster --name pgha-e2e --config test/e2e/kind.yaml --wait 180s
+          kind load docker-image ghcr.io/bugs5382/helm-postgres-ha/pgha:e2e --name pgha-e2e
+          curl -fsSLo cert-manager.yaml "https://github.com/cert-manager/cert-manager/releases/download/${CERT_MANAGER_VERSION}/cert-manager.yaml"
+          echo "${CERT_MANAGER_SHA256}  cert-manager.yaml" | sha256sum -c -
+          kubectl apply -f cert-manager.yaml
+          kubectl -n cert-manager rollout status deploy/cert-manager-webhook --timeout=180s
+
+      - name: 🔁 Failover tests
+        run: bash test/e2e/install.sh && bash test/e2e/run.sh
+
+      - name: 💾 Backup and restore tests
+        run: bash test/e2e/backup.sh
+
+      - name: 🧾 Cluster state on failure
+        if: failure()
+        run: |
+          for ns in db bk rs; do
+            kubectl -n "$ns" get pods,lease -o wide || true
+            for p in $(kubectl -n "$ns" get pods -o name 2>/dev/null); do
+              echo "--- $ns $p"; kubectl -n "$ns" logs "$p" --all-containers --tail=200 || true
+            done
+          done

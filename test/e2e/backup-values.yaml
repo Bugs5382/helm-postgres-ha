@@ -1,0 +1,17 @@
+# Backups to the in-cluster SeaweedFS. The prefix is set per release.
+backup:
+  enabled: true
+  source: standby
+  s3:
+    endpoint: http://seaweedfs.s3.svc:8333
+    region: us-east-1
+    forcePathStyle: true
+    existingSecret: s3-creds
+networkPolicy:
+  extraEgress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: s3
+      ports:
+        - port: 8333

@@ -41,7 +41,7 @@ and archive settings) are refused in `postgresql.parameters`.
 - `internal/backup/` - the WAL-G backup scheduler; `internal/secrets/` - the credential hook.
 - `internal/errs/` - coded errors; `docs/errors.md` must list every code (a test checks it).
 - `deployments/postgres-ha/` - the chart, its schema, `tests/` (helm-unittest) and `ci/` values.
-- `test/chart/checks.sh` - chart checks.
+- `test/chart/checks.sh` - chart checks; `test/e2e/` - kind failover and backup suites.
 
 The repo follows the `go/app` layout except that the binary lives in `cmd/pgha` (it is not a
 server only) and the transport package is `internal/server` plus `internal/peer`.
@@ -52,6 +52,9 @@ server only) and the transport package is `internal/server` plus `internal/peer`
 - Test: `go test ./...` (run under `systemd-run --user --scope -p MemoryMax=6G` on shared boxes)
 - Lint: `task lint` (gofmt, golangci-lint, yamllint)
 - Chart: `bash test/chart/checks.sh` (needs helm, kubeconform, yq and the helm-unittest plugin)
+- End to end: create the kind cluster from `test/e2e/kind.yaml`, install cert-manager, load the
+  image tagged `ghcr.io/bugs5382/helm-postgres-ha/pgha:e2e`, then `test/e2e/install.sh`,
+  `test/e2e/run.sh` and `test/e2e/backup.sh`. CI does exactly this in `.github/workflows/checks.yaml`.
 - License headers: `task license` (golic, Go sources).
 
 ## Logging
@@ -77,3 +80,5 @@ Follow the logging rules in `CLAUDE.md`. In short:
 - Every SQL statement in the control loop must be bounded by a context timeout, and anything that
   can take long (role DDL, promotion, clone, rewind, backups) runs off the loop. A blocked loop
   stops renewals and the watchdog fences the primary.
+- The e2e suites assert the behaviour each tracked issue specifies; when you change failover
+  behaviour, change the matching step and keep it failing first.

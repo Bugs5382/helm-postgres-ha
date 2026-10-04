@@ -1,0 +1,49 @@
+# A client pod the NetworkPolicy allows (e2e-client=true), with the cluster CA.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: client
+  labels:
+    e2e-client: "true"
+spec:
+  # On the control-plane node, which the tests never freeze or partition.
+  nodeSelector:
+    node-role.kubernetes.io/control-plane: ""
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      effect: NoSchedule
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 999
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+    - name: psql
+      image: POSTGRES_IMAGE
+      command: ["sleep", "infinity"]
+      env:
+        - name: PGSSLMODE
+          value: verify-full
+        - name: PGSSLROOTCERT
+          value: /ca/ca.crt
+        - name: PGCONNECT_TIMEOUT
+          value: "5"
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: RELEASE-role-app
+              key: password
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: [ALL]
+      volumeMounts:
+        - name: ca
+          mountPath: /ca
+  volumes:
+    - name: ca
+      secret:
+        secretName: RELEASE-tls
+        items:
+          - key: ca.crt
+            path: ca.crt
