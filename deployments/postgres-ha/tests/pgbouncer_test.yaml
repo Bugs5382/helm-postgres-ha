@@ -41,3 +41,9 @@ tests:
       pgbouncer.enabled: false
     asserts:
       - hasDocuments: {count: 0}
+  - it: lets the pgbouncer_auth login use the admin console, so a new primary can drop stale connections
+    documentSelector: {path: kind, value: ConfigMap}
+    asserts:
+      - matchRegex:
+          path: data["pgbouncer.ini"]
+          pattern: '(?m)^admin_users = pgbouncer_auth$'

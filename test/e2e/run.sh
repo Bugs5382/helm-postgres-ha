@@ -38,9 +38,18 @@ wait_for 120 only_new_primary || fail "no new primary after freezing $NODE"
 NEW=$(primary)
 log "  $NEW promoted after $((SECONDS - start))s"
 promoted=$SECONDS
-wait_for 90 app_write after-failover || fail "writes through pgbouncer did not resume"
-log "  writes resumed after $((SECONDS - start))s"
-(( SECONDS - promoted <= 45 )) || fail "writes took $((SECONDS - promoted))s to resume after the promotion"
+# A pooler on a live node must serve writes soon after the promotion. The
+# Service can still route some connections to the pooler on the frozen node
+# until Kubernetes marks that node NotReady, so the Service is only checked
+# for eventually recovering.
+LIVE_POOLER=$($K get pods -l app.kubernetes.io/name=postgres-ha-pgbouncer -o jsonpath="{range .items[?(@.spec.nodeName!='$NODE')]}{.status.podIP}{' '}{end}" | awk '{print $1}')
+[ -n "$LIVE_POOLER" ] || fail "no pgbouncer pod outside the frozen node"
+app_at() { $K exec client -- psql "host=$1 port=6432 sslmode=require user=app dbname=app" -XAtq -c "insert into e2e (v) select '$2' where not exists (select 1 from e2e where v = '$2')"; }
+wait_for 60 app_at "$LIVE_POOLER" after-failover || fail "the live pgbouncer did not serve writes"
+log "  the live pgbouncer served writes $((SECONDS - promoted))s after the promotion"
+(( SECONDS - promoted <= 30 )) || fail "the live pgbouncer took $((SECONDS - promoted))s to serve writes"
+wait_for 120 app_write after-failover-service || fail "writes through the pgbouncer Service did not resume"
+log "  writes through the Service resumed after $((SECONDS - start))s"
 has_row "$NEW" before-failover || fail "a committed row was lost in the failover"
 docker unpause "$NODE" >/dev/null
 trap - EXIT

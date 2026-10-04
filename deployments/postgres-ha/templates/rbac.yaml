@@ -29,6 +29,13 @@ rules:
       - {{ printf "%s-%d" $name $i | quote }}
       {{- end }}
     verbs: [get, patch]
+  {{- if .Values.pgbouncer.enabled }}
+  # Read-only: the new primary finds the PgBouncer pods to reset. List cannot
+  # be limited by name.
+  - apiGroups: [discovery.k8s.io]
+    resources: [endpointslices]
+    verbs: [list]
+  {{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

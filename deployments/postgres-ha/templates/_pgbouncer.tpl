@@ -14,6 +14,9 @@ auth_file = /run/pgbouncer/userlist.txt
 auth_user = pgbouncer_auth
 auth_dbname = postgres
 auth_query = SELECT usename, passwd FROM pgbouncer.get_auth($1)
+; The new primary logs in here after a promotion to KILL and RESUME each
+; database, dropping connections to the old primary.
+admin_users = pgbouncer_auth
 pool_mode = {{ .Values.pgbouncer.poolMode }}
 default_pool_size = {{ .Values.pgbouncer.defaultPoolSize }}
 max_client_conn = {{ .Values.pgbouncer.maxClientConn }}

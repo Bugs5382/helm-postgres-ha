@@ -38,6 +38,7 @@ and archive settings) are refused in `postgresql.parameters`.
 - `internal/lease/`, `internal/kube/` - the Lease and the role label.
 - `internal/peer/`, `internal/server/` - the mutual-TLS status API, probes and metrics.
 - `internal/pg/` - the postmaster supervisor, server tools, SQL, roles reconciler, SCRAM.
+- `internal/pooler/` - resets PgBouncer's connections after a promotion (admin console over TLS).
 - `internal/backup/` - the WAL-G backup scheduler; `internal/secrets/` - the credential hook.
 - `internal/errs/` - coded errors; `docs/errors.md` must list every code (a test checks it).
 - `deployments/postgres-ha/` - the chart, its schema, `tests/` (helm-unittest) and `ci/` values.

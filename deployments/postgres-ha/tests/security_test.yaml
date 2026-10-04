@@ -17,6 +17,37 @@ tests:
               resources: [pods]
               resourceNames: [RELEASE-NAME-0, RELEASE-NAME-1, RELEASE-NAME-2]
               verbs: [get, patch]
+            - apiGroups: [discovery.k8s.io]
+              resources: [endpointslices]
+              verbs: [list]
+  - it: needs no EndpointSlice access without PgBouncer
+    templates: [rbac.yaml]
+    documentSelector: {path: kind, value: Role}
+    set:
+      pgbouncer.enabled: false
+    asserts:
+      - lengthEqual:
+          path: rules
+          count: 2
+  - it: lets members reach the poolers' admin port, and the poolers accept them
+    templates: [networkpolicy.yaml]
+    asserts:
+      - contains:
+          path: spec.egress
+          content:
+            to:
+              - podSelector:
+                  matchLabels: {app.kubernetes.io/name: postgres-ha-pgbouncer, app.kubernetes.io/instance: RELEASE-NAME}
+            ports: [{port: 6432}]
+        documentIndex: 0
+      - contains:
+          path: spec.ingress
+          content:
+            from:
+              - podSelector:
+                  matchLabels: {app.kubernetes.io/name: postgres-ha, app.kubernetes.io/instance: RELEASE-NAME}
+            ports: [{port: 6432}]
+        documentIndex: 1
   - it: mounts no token through the ServiceAccount by default
     templates: [rbac.yaml]
     documentSelector: {path: kind, value: ServiceAccount}
