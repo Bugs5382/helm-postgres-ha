@@ -188,6 +188,23 @@ backup:
     existingSecret: ""
   # -- Extra WAL-G environment (WALG_*), for example compression settings.
   env: {}
+  # A scheduled restore check: restore the latest base backup into a
+  # throwaway server, replay the archived WAL, run a query, and record the
+  # outcome on the backup Lease (pgha_backup_last_verify_ok).
+  verify:
+    enabled: true
+    schedule: "0 5 * * *"
+    database: postgres
+    query: SELECT count(*) FROM pg_class
+    timeout: 1h
+    # -- Scratch space for the restored data. Empty uses storage.size.
+    scratchSize: ""
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        memory: 1Gi
 
 pgbouncer:
   enabled: true

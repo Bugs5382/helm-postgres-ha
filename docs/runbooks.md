@@ -78,8 +78,28 @@ helm install pgr ./deployments/postgres-ha -n restore --create-namespace \
 - The restored primary promotes at the target onto a new timeline, archives to its own prefix
   and takes a fresh base backup at once. The standbys clone from it.
 
-To check that backups restore, run this on a schedule into a throwaway namespace and query the
-result.
+### The scheduled restore check
+
+With backups on, the `pg-backup-verify` CronJob (`backup.verify`, daily at 05:00 UTC by default)
+proves the latest backup restores. It:
+
+1. fetches the latest base backup into scratch space;
+2. replays the archived WAL in a throwaway server that only listens on a local socket and never
+   archives;
+3. runs `backup.verify.query`;
+4. records the outcome on the backup Lease (`postgres-ha/last-verify`,
+   `postgres-ha/last-verify-result`).
+
+Every member exports the outcome as `pgha_backup_last_verify_timestamp_seconds` and
+`pgha_backup_last_verify_ok`. To run the check now:
+
+```bash
+kubectl -n db create job verify-now --from=cronjob/pg-backup-verify
+kubectl -n db logs -f job/verify-now -c verify
+```
+
+Point `backup.verify.query` at a table your application always writes to, so the check proves
+recent data is there and not only that the server starts.
 
 ## Taking a backup now
 
