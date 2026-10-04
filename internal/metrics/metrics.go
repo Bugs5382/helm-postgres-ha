@@ -65,6 +65,8 @@ type Set struct {
 	BackupLastSuccess   prometheus.Gauge
 	BackupFailures      prometheus.Counter
 	BackupDuration      prometheus.Gauge
+	BackupLastVerify    prometheus.Gauge
+	BackupVerifyOK      prometheus.Gauge
 	DataVolumeSize      prometheus.Gauge
 	DataVolumeAvailable prometheus.Gauge
 	WALDirBytes         prometheus.Gauge
@@ -118,6 +120,8 @@ func New() *Set {
 	s.BackupLastSuccess = g("backup_last_success_timestamp_seconds", "When the cluster's last base backup finished, as recorded on the backup Lease.")
 	s.BackupFailures = c("backup_failures_total", "Base backups run by this member that failed.")
 	s.BackupDuration = g("backup_last_duration_seconds", "Duration of the last base backup this member ran.")
+	s.BackupLastVerify = g("backup_last_verify_timestamp_seconds", "When the scheduled restore check last ran, as recorded on the backup Lease.")
+	s.BackupVerifyOK = g("backup_last_verify_ok", "1 when the last scheduled restore check restored the latest backup and answered its query.")
 	s.DataVolumeSize = g("data_volume_size_bytes", "Size of the data volume.")
 	s.DataVolumeAvailable = g("data_volume_available_bytes", "Free space on the data volume.")
 	s.WALDirBytes = g("wal_dir_bytes", "Size of pg_wal.")

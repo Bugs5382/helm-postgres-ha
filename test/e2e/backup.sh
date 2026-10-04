@@ -49,6 +49,13 @@ BY=$($K get lease pg-backup -o jsonpath='{.metadata.annotations.postgres-ha/last
 [ "$BY" != "$P" ] || fail "the backup ran on the primary, not a standby"
 log "  backup by standby $BY"
 
+log "restore check: the scheduled job restores the latest backup and records the result"
+$K delete job verify-now --ignore-not-found >/dev/null
+$K create job verify-now --from=cronjob/pg-backup-verify >/dev/null
+kubectl -n "$NS" wait --for=condition=complete job/verify-now --timeout=300s >/dev/null || { $K logs job/verify-now --all-containers | tail -30; fail "the restore check did not complete"; }
+[ "$($K get lease pg-backup -o jsonpath='{.metadata.annotations.postgres-ha/last-verify-result}')" = "ok" ] || fail "the restore check did not record ok"
+$K logs job/verify-now -c verify | grep -q '"message":"restore verified"' || fail "the restore check did not log its result"
+
 log "two writes either side of the restore target"
 wait_for 60 app "drop table if exists pitr; create table pitr (v text)" || fail "app cannot write"
 app "insert into pitr values ('kept')"

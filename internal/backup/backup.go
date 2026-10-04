@@ -45,6 +45,7 @@ import (
 	"github.com/Bugs5382/helm-postgres-ha/internal/errs"
 	"github.com/Bugs5382/helm-postgres-ha/internal/lease"
 	"github.com/Bugs5382/helm-postgres-ha/internal/metrics"
+	"github.com/Bugs5382/helm-postgres-ha/internal/verify"
 )
 
 // Annotation keys on the backup Lease.
@@ -163,6 +164,14 @@ func (s *Scheduler) Tick(ctx context.Context, role agent.BackupRole) {
 	s.mu.Lock()
 	s.lastSuccess = parseTime(rec.Ann(LastSuccess))
 	s.mu.Unlock()
+	if t := parseTime(rec.Ann(verify.LastVerify)); !t.IsZero() {
+		s.m.BackupLastVerify.Set(float64(t.Unix()))
+		ok := 0.0
+		if rec.Ann(verify.LastVerifyResult) == "ok" {
+			ok = 1
+		}
+		s.m.BackupVerifyOK.Set(ok)
+	}
 	if !role.Primary && !role.StreamingStandby {
 		return
 	}

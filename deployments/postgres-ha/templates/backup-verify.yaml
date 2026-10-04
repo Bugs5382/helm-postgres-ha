@@ -1,0 +1,149 @@
+{{- if and .Values.backup.enabled .Values.backup.verify.enabled }}
+{{- $name := include "pgha.name" . -}}
+{{- $v := .Values.backup.verify -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}-verify
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pgha.labels" . | nindent 4 }}
+automountServiceAccountToken: false
+---
+# The restore check only records its outcome on the backup Lease.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $name }}-verify
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pgha.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    resourceNames: [{{ include "pgha.backupLease" . | quote }}]
+    verbs: [get, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $name }}-verify
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pgha.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $name }}-verify
+subjects:
+  - kind: ServiceAccount
+    name: {{ $name }}-verify
+    namespace: {{ .Release.Namespace }}
+---
+# Restores the latest base backup into a throwaway server, replays the
+# archived WAL and runs a check query. The server listens only on a local
+# socket and never archives, so the check cannot write to the cluster's
+# storage.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ $name }}-backup-verify
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pgha.labels" . | nindent 4 }}
+spec:
+  schedule: {{ $v.schedule | quote }}
+  timeZone: Etc/UTC
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: postgres-ha-verify
+            app.kubernetes.io/instance: {{ $name }}
+        spec:
+          serviceAccountName: {{ $name }}-verify
+          automountServiceAccountToken: true
+          restartPolicy: Never
+          enableServiceLinks: false
+          {{- with .Values.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999
+            runAsGroup: 999
+            fsGroup: 999
+            seccompProfile:
+              type: RuntimeDefault
+          initContainers:
+            - name: tools
+              image: {{ include "pgha.agentImage" . }}
+              imagePullPolicy: {{ .Values.agent.image.pullPolicy }}
+              command: ["/usr/local/bin/pgha", "install", "--dest", "/pgha/bin"]
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: [ALL]
+              resources:
+                {{- toYaml .Values.agent.initResources | nindent 16 }}
+              volumeMounts:
+                - name: tools
+                  mountPath: /pgha/bin
+          containers:
+            - name: verify
+              image: {{ include "pgha.postgresImage" . }}
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              command:
+                - /pgha/bin/pgha
+                - verify-restore
+                - --lease
+                - {{ include "pgha.backupLease" . }}
+                - --database
+                - {{ $v.database }}
+                - --query
+                - {{ $v.query | quote }}
+                - --timeout
+                - {{ $v.timeout }}
+              env:
+                - name: POD_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+                - name: LOG_LEVEL
+                  value: {{ .Values.agent.logLevel | quote }}
+                - name: LOG_FORMAT
+                  value: {{ .Values.agent.logFormat | quote }}
+                {{- include "pgha.walgEnv" . | nindent 16 }}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: [ALL]
+              resources:
+                {{- toYaml $v.resources | nindent 16 }}
+              volumeMounts:
+                - name: tools
+                  mountPath: /pgha/bin
+                  readOnly: true
+                - name: verify
+                  mountPath: /verify
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: tools
+              emptyDir:
+                sizeLimit: 256Mi
+            - name: verify
+              emptyDir:
+                sizeLimit: {{ default .Values.storage.size $v.scratchSize }}
+            - name: tmp
+              emptyDir:
+                sizeLimit: 1Gi
+{{- end }}

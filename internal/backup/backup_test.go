@@ -180,3 +180,24 @@ func TestBadSchedule(t *testing.T) {
 		t.Fatal("bad schedule accepted")
 	}
 }
+
+func TestRestoreVerificationIsExported(t *testing.T) {
+	s, _, _, st := setup(t, "pg-1", config.BackupFromStandby)
+	ctx := context.Background()
+	if err := st.Annotate(ctx, map[string]string{"postgres-ha/last-verify": "2026-01-01T05:00:00Z", "postgres-ha/last-verify-result": "ok"}); err != nil {
+		t.Fatal(err)
+	}
+	s.Tick(ctx, standbyRole)
+	g, _ := s.m.Gather()
+	if g["pgha_backup_last_verify_timestamp_seconds"] != 1767243600 || g["pgha_backup_last_verify_ok"] != 1 {
+		t.Fatalf("metrics = %v %v", g["pgha_backup_last_verify_timestamp_seconds"], g["pgha_backup_last_verify_ok"])
+	}
+	if err := st.Annotate(ctx, map[string]string{"postgres-ha/last-verify-result": "failed"}); err != nil {
+		t.Fatal(err)
+	}
+	s.Tick(ctx, standbyRole)
+	g, _ = s.m.Gather()
+	if g["pgha_backup_last_verify_ok"] != 0 {
+		t.Fatal("failed verification exported as ok")
+	}
+}

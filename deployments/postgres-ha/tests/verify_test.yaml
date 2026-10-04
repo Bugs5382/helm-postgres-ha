@@ -1,0 +1,55 @@
+suite: restore verification
+templates: [backup-verify.yaml]
+set:
+  postgresql.allowedCIDRs: ["10.244.0.0/16"]
+  backup.enabled: true
+  backup.s3.prefix: s3://bucket/pg
+  backup.s3.existingSecret: s3
+tests:
+  - it: schedules a restore check whenever backups are on
+    documentSelector: {path: kind, value: CronJob}
+    asserts:
+      - equal:
+          path: spec.schedule
+          value: "0 5 * * *"
+      - equal:
+          path: spec.concurrencyPolicy
+          value: Forbid
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.containers[0].command
+          value: [/pgha/bin/pgha, verify-restore, --lease, RELEASE-NAME-backup, --database, postgres, --query, "SELECT count(*) FROM pg_class", --timeout, 1h]
+  - it: reads backups from the cluster's own storage
+    documentSelector: {path: kind, value: CronJob}
+    asserts:
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content: {name: WALG_S3_PREFIX, value: s3://bucket/pg}
+  - it: runs restricted, with scratch space for the restored data
+    documentSelector: {path: kind, value: CronJob}
+    asserts:
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: true
+      - equal:
+          path: spec.jobTemplate.spec.template.spec.volumes[?(@.name=="verify")].emptyDir.sizeLimit
+          value: 10Gi
+  - it: may only annotate the backup Lease
+    documentSelector: {path: kind, value: Role}
+    asserts:
+      - equal:
+          path: rules
+          value:
+            - apiGroups: [coordination.k8s.io]
+              resources: [leases]
+              resourceNames: [RELEASE-NAME-backup]
+              verbs: [get, patch]
+  - it: renders nothing without backups
+    set:
+      backup.enabled: false
+    asserts:
+      - hasDocuments: {count: 0}
+  - it: can be turned off
+    set:
+      backup.verify.enabled: false
+    asserts:
+      - hasDocuments: {count: 0}
