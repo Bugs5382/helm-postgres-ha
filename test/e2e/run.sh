@@ -95,6 +95,28 @@ wait_for 180 all_streaming || fail "partitioned member did not rejoin"
 in_recovery "$OLD" || fail "$OLD came back read-write after the partition healed"
 wait_for 30 has_row "$OLD" during-partition || fail "$OLD is missing writes from the partition"
 
+log "asymmetric partition: one standby loses the primary; nobody fails over"
+P=$(primary)
+S=$(for m in "$R-0" "$R-1" "$R-2"; do [ "$m" != "$P" ] && echo "$m" && break; done)
+SNODE=$($K get pod "$S" -o jsonpath='{.spec.nodeName}')
+SIP=$($K get pod "$S" -o jsonpath='{.status.podIP}')
+PIP=$($K get pod "$P" -o jsonpath='{.status.podIP}')
+TRANSITIONS=$($K get lease "$R" -o jsonpath='{.spec.leaseTransitions}')
+cut_pair() { docker exec "$SNODE" iptables -t raw "$1" PREROUTING -s "$SIP" -d "$PIP" -j DROP; docker exec "$SNODE" iptables -t raw "$1" PREROUTING -s "$PIP" -d "$SIP" -j DROP; }
+cut_pair -I
+trap 'cut_pair -D 2>/dev/null || true' EXIT
+# Well past the lease duration and the receiver timeout.
+sleep 45
+[ "$(holder)" = "$P" ] || fail "the lease moved from $P to $(holder) though only $S lost its path"
+[ "$($K get lease "$R" -o jsonpath='{.spec.leaseTransitions}')" = "$TRANSITIONS" ] || fail "the lease changed hands"
+[ "$(primary)" = "$P" ] || fail "another member was labelled primary"
+in_recovery "$S" || fail "$S left recovery"
+app_write during-asymmetric-partition || fail "writes failed while only $S was cut off"
+cut_pair -D
+trap - EXIT
+wait_for 120 all_streaming || fail "$S did not stream again after the path healed"
+wait_for 30 has_row "$S" during-asymmetric-partition || fail "$S is missing writes from the partition"
+
 log "config rollout: a values change reaches the running cluster without a restart"
 P=$(primary)
 UIDS=$($K get pods -l "app.kubernetes.io/instance=$R,app.kubernetes.io/name=postgres-ha" -o jsonpath='{.items[*].metadata.uid}')
