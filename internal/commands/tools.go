@@ -68,6 +68,12 @@ func installCmd() *cobra.Command {
 	return cmd
 }
 
+// syncFile flushes a copied binary to disk; tests replace it.
+var syncFile = func(f *os.File) error { return f.Sync() }
+
+// copyFile copies through a temporary file and a rename, and syncs before
+// the rename: the init container's memory limit is charged for dirty page
+// cache, and a large unsynced copy can get it OOM-killed.
 func copyFile(src, dst string) error {
 	in, err := os.Open(src) // #nosec G304 -- fixed binary paths
 	if err != nil {
@@ -80,6 +86,10 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+		return err
+	}
+	if err := syncFile(out); err != nil {
 		_ = out.Close()
 		return err
 	}
