@@ -1,7 +1,4 @@
-// Package helmpostgresha is General-purpose highly available PostgreSQL Helm chart: streaming replication, lease-based failover with fencing, WAL-G backup and restore, and PgBouncer.
-//
-// Replace this scaffold with the package's real implementation.
-package helmpostgresha
+package kube
 
 /*
 MIT License
@@ -25,3 +22,27 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 */
+
+import (
+	"context"
+	"testing"
+
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes/fake"
+)
+
+func TestSetRole(t *testing.T) {
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "pg-1", Namespace: "db", Labels: map[string]string{"app": "x"}}}
+	cs := fake.NewClientset(pod)
+	if err := New(cs, "db").SetRole(context.Background(), "pg-1", RoleReplica); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := cs.CoreV1().Pods("db").Get(context.Background(), "pg-1", metav1.GetOptions{})
+	if p.Labels[RoleLabel] != RoleReplica || p.Labels["app"] != "x" {
+		t.Fatalf("labels = %v", p.Labels)
+	}
+	if r, err := New(cs, "db").Role(context.Background(), "pg-1"); err != nil || r != RoleReplica {
+		t.Fatalf("role = %q %v", r, err)
+	}
+}

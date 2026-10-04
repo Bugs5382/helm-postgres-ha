@@ -1,4 +1,6 @@
-package helmpostgresha
+// Command pgha is the postgres-ha agent: it runs as PID 1 in each member's
+// postgres container and keeps the member in its role.
+package main
 
 /*
 MIT License
@@ -23,12 +25,17 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 */
 
-import "testing"
+import (
+	"context"
+	"fmt"
+	"os"
 
-func TestHello(t *testing.T) {
-	got := Hello("world")
-	want := "Hello, world!"
-	if got != want {
-		t.Errorf("Hello() = %q, want %q", got, want)
+	"github.com/Bugs5382/helm-postgres-ha/internal/commands"
+)
+
+func main() {
+	if err := commands.Root().ExecuteContext(context.Background()); err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, "pgha:", err)
+		os.Exit(1)
 	}
 }

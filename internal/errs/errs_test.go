@@ -1,4 +1,4 @@
-package helmpostgresha
+package errs
 
 /*
 MIT License
@@ -23,9 +23,31 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 */
 
-import "fmt"
+import (
+	"errors"
+	"os"
+	"strings"
+	"testing"
+)
 
-// Hello greets a name. Replace with the package's real entry point.
-func Hello(name string) string {
-	return fmt.Sprintf("Hello, %s!", name)
+func TestRegistryBuilds(t *testing.T) {
+	reg := Registry()
+	if !strings.Contains(reg.Markdown(), "1111") {
+		t.Fatal("fencing code missing from the table")
+	}
+	err := New(Fenced, errors.New("renew timed out"))
+	if Code(err) != Fenced || Code(errors.New("x")) != 0 {
+		t.Fatal("code lost")
+	}
+}
+
+// TestDocsListEveryCode keeps docs/errors.md in step with the table.
+func TestDocsListEveryCode(t *testing.T) {
+	b, err := os.ReadFile("../../docs/errors.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), strings.TrimSpace(Registry().Markdown())) {
+		t.Fatalf("docs/errors.md is out of date; paste in:\n%s", Registry().Markdown())
+	}
 }
