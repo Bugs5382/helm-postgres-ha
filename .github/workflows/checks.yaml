@@ -1,0 +1,27 @@
+name: Checks
+# The repository's own checks, as one job. It builds the agent image; the
+# chart and end-to-end checks join it as those land. Every tool it installs is
+# a pinned release checked against its published SHA-256.
+#
+# Pull requests only, and not while the PR is a draft.
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  checks:
+    name: 🧪 Checks
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 🐳 Build the agent image
+        run: docker build -t ghcr.io/bugs5382/helm-postgres-ha/pgha:e2e --build-arg VERSION=e2e .
