@@ -1,0 +1,82 @@
+{{- $name := include "pgha.name" . -}}
+# Governing Service: stable per-member DNS names, published before members
+# are ready so peers and clones can find each other.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "pgha.headless" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pgha.labels" . | nindent 4 }}
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    {{- include "pgha.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+    - name: peer
+      port: 8009
+      targetPort: peer
+---
+# Read-write endpoint: the member the agent labels primary. Only the Lease
+# holder ever carries that label, and only while it runs read-write.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "pgha.primary" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pgha.labels" . | nindent 4 }}
+  {{- with .Values.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  selector:
+    {{- include "pgha.selectorLabels" . | nindent 4 }}
+    postgres-ha/role: primary
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+---
+# Read-only endpoint: standbys that stream within the readiness lag limit.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "pgha.replica" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pgha.labels" . | nindent 4 }}
+  {{- with .Values.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  selector:
+    {{- include "pgha.selectorLabels" . | nindent 4 }}
+    postgres-ha/role: replica
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+---
+# Metrics endpoint for every member.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}-metrics
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pgha.labels" . | nindent 4 }}
+    postgres-ha/metrics: "true"
+spec:
+  selector:
+    {{- include "pgha.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: 8008
+      targetPort: http

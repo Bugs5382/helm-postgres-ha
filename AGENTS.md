@@ -7,34 +7,52 @@ hook-enforced rules). Keep this file current when the build, layout, or public A
 
 General-purpose highly available PostgreSQL Helm chart: streaming replication, lease-based failover with fencing, WAL-G backup and restore, and PgBouncer.
 
-<!-- Fill in: what the project does, what it ships (library, service, action, CLI), and the one or
-two things an agent must understand before changing it. -->
+It ships two things that are versioned together:
+
+- `pgha`, a Go agent that runs as PID 1 in each member's postgres container and supervises
+  PostgreSQL (`cmd/pgha`, `internal/`), and the image that carries it with a static `wal-g`
+  (`Dockerfile`);
+- the `postgres-ha` Helm chart (`deployments/postgres-ha`).
+
+Two things to understand before changing it:
+
+1. The cluster Lease is the only source of truth. PostgreSQL may run read-write only while its pod
+   holds the Lease, and the watchdog fences a primary whose renewals stop. Never add a path that
+   promotes, or routes clients, without holding the Lease. See `docs/architecture.md`.
+2. The chart never patches Services. Routing follows the `postgres-ha/role` pod label the agent
+   sets, so Helm upgrades and GitOps resyncs cannot repoint clients.
 
 ## Using helm-postgres-ha
 
-<!-- If this project is consumed by others (a library/plugin/action), describe the contract a
-consumer must respect: the single entry point, the public surface, required options, and anything
-that must not be bypassed. Delete this section for a leaf application. -->
+Consumers install the chart (`helm install ... ./deployments/postgres-ha`) with
+`postgresql.allowedCIDRs` set and the agent image available. The values schema is the contract;
+values the agent owns (`primary_conninfo`, `restore_command`, `synchronous_standby_names`, the TLS
+and archive settings) are refused in `postgresql.parameters`.
 
 ## Layout
 
-<!-- The directories that matter and what lives in each. Keep it short; point at the entry points. -->
+- `cmd/pgha/` - the binary; `internal/commands/` wires the cobra commands (`run`, `install`,
+  `secrets ensure`, `switchover`, `backup`, `version`).
+- `internal/agent/` - the control loop: bootstrap, follow, fence, elect, promote, rejoin, handover.
+- `internal/election/` - the pure election rules (quorum, ranking, successor).
+- `internal/lease/`, `internal/kube/` - the Lease and the role label.
+- `internal/peer/`, `internal/server/` - the mutual-TLS status API, probes and metrics.
+- `internal/pg/` - the postmaster supervisor, server tools, SQL, roles reconciler, SCRAM.
+- `internal/backup/` - the WAL-G backup scheduler; `internal/secrets/` - the credential hook.
+- `internal/errs/` - coded errors; `docs/errors.md` must list every code (a test checks it).
+- `deployments/postgres-ha/` - the chart, its schema, `tests/` (helm-unittest) and `ci/` values.
+- `test/chart/checks.sh` - chart checks.
 
-- `src/` - <what>
-- `<tests dir>/` - <what>
+The repo follows the `go/app` layout except that the binary lives in `cmd/pgha` (it is not a
+server only) and the transport package is `internal/server` plus `internal/peer`.
 
 ## Build, test, lint
 
-<!-- The exact commands. Pull these from package.json scripts (npm), the Taskfile (Go/Task), or
-pyproject (Python) so they stay accurate. -->
-
-- Build: `<command>`
-- Test: `<command>` (note any service/fixture the integration tests require)
-- Lint: `<command>`
-- Package checks (npm packages), after a build: `npm run check:pack` (contents and ceiling),
-  `npm run check:pack:growth` (growth against the last release), `npm run check:install`
-  (install the tarball, import ESM and CJS); see CLAUDE.md "npm package contents"
-- License headers / docs: `<command>`
+- Build: `go build ./...`; image: `docker build -t pgha:dev .`
+- Test: `go test ./...` (run under `systemd-run --user --scope -p MemoryMax=6G` on shared boxes)
+- Lint: `task lint` (gofmt, golangci-lint, yamllint)
+- Chart: `bash test/chart/checks.sh` (needs helm, kubeconform, yq and the helm-unittest plugin)
+- License headers: `task license` (golic, Go sources).
 
 ## Logging
 
@@ -56,4 +74,6 @@ Follow the logging rules in `CLAUDE.md`. In short:
   `.claude/hooks` (run `bash .claude/hooks/install.sh` once per clone).
 - Open every PR as a draft. CI skips drafts, so run the full checks locally, push once they pass,
   and mark the PR ready when the work is finished; see CLAUDE.md "CI and Actions minutes".
-- <project-specific conventions, non-obvious constraints, and traps an agent should know>
+- Every SQL statement in the control loop must be bounded by a context timeout, and anything that
+  can take long (role DDL, promotion, clone, rewind, backups) runs off the loop. A blocked loop
+  stops renewals and the watchdog fences the primary.

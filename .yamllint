@@ -30,3 +30,6 @@ rules:
   quoted-strings: disable
   trailing-spaces: enable
   truthy: disable
+
+ignore: |
+  deployments/*/templates/

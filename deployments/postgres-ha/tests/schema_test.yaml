@@ -1,0 +1,30 @@
+suite: values schema
+templates: [statefulset.yaml]
+tests:
+  - it: requires allowedCIDRs
+    asserts:
+      - failedTemplate: {}
+  - it: rejects a malformed digest
+    set:
+      postgresql.allowedCIDRs: ["10.244.0.0/16"]
+      image.digest: sha256:nope
+    asserts:
+      - failedTemplate: {}
+  - it: rejects unknown values
+    set:
+      postgresql.allowedCIDRs: ["10.244.0.0/16"]
+      postgresql.typo: 1
+    asserts:
+      - failedTemplate: {}
+  - it: rejects an unknown synchronous mode
+    set:
+      postgresql.allowedCIDRs: ["10.244.0.0/16"]
+      postgresql.synchronous.mode: sometimes
+    asserts:
+      - failedTemplate: {}
+  - it: rejects a WAL-G setting outside the WALG_ namespace
+    set:
+      postgresql.allowedCIDRs: ["10.244.0.0/16"]
+      backup.env: {AWS_SECRET_ACCESS_KEY: x}
+    asserts:
+      - failedTemplate: {}

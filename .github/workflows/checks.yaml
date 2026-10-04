@@ -1,7 +1,7 @@
 name: Checks
-# The repository's own checks, as one job. It builds the agent image; the
-# chart and end-to-end checks join it as those land. Every tool it installs is
-# a pinned release checked against its published SHA-256.
+# The repository's own checks, as one job: the agent image build and the
+# chart checks (lint, kubeconform, schema and unit tests). Every tool is a
+# pinned release checked against its published SHA-256.
 #
 # Pull requests only, and not while the PR is a draft.
 on:
@@ -13,6 +13,13 @@ concurrency:
   cancel-in-progress: true
 permissions:
   contents: read
+env:
+  HELM_VERSION: v4.2.0
+  HELM_SHA256: 97dbeb971be4ac4b27e3839976d9564c0fb35c6f3b1da89dd1e292d236af4096
+  KUBECONFORM_VERSION: v0.8.0
+  KUBECONFORM_SHA256: 9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
+  HELM_UNITTEST_VERSION: 1.2.1
+  HELM_UNITTEST_SHA256: 48e86ecc1467b009630e5954375e5d8494139f73b466df5fe8c04fa45b634939
 jobs:
   checks:
     name: 🧪 Checks
@@ -25,3 +32,23 @@ jobs:
 
       - name: 🐳 Build the agent image
         run: docker build -t ghcr.io/bugs5382/helm-postgres-ha/pgha:e2e --build-arg VERSION=e2e .
+
+      - name: 🔧 Install the chart tools
+        run: |
+          set -euo pipefail
+          bin="$RUNNER_TEMP/bin"; mkdir -p "$bin" "$RUNNER_TEMP/helm-plugins/helm-unittest"
+          cd "$RUNNER_TEMP"
+          curl -fsSLo helm.tgz "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz"
+          echo "${HELM_SHA256}  helm.tgz" | sha256sum -c -
+          tar -xzf helm.tgz --strip-components=1 -C "$bin" linux-amd64/helm
+          curl -fsSLo kubeconform.tgz "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
+          echo "${KUBECONFORM_SHA256}  kubeconform.tgz" | sha256sum -c -
+          tar -xzf kubeconform.tgz -C "$bin" kubeconform
+          curl -fsSLo unittest.tgz "https://github.com/helm-unittest/helm-unittest/releases/download/v${HELM_UNITTEST_VERSION}/helm-unittest-linux-amd64-${HELM_UNITTEST_VERSION}.tgz"
+          echo "${HELM_UNITTEST_SHA256}  unittest.tgz" | sha256sum -c -
+          tar -xzf unittest.tgz -C "$RUNNER_TEMP/helm-plugins/helm-unittest"
+          echo "$bin" >> "$GITHUB_PATH"
+          echo "HELM_PLUGINS=$RUNNER_TEMP/helm-plugins" >> "$GITHUB_ENV"
+
+      - name: ⎈ Chart checks
+        run: bash test/chart/checks.sh

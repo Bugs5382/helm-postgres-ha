@@ -1,0 +1,68 @@
+suite: configuration
+templates: [configmap.yaml]
+set:
+  postgresql.allowedCIDRs: ["10.244.0.0/16"]
+tests:
+  - it: accepts only TLS and SCRAM over the network, and peer on the socket
+    asserts:
+      - notMatchRegex:
+          path: data["pg_hba.conf"]
+          pattern: '(?m)\s(trust|md5|password)\s*$'
+      - matchRegex:
+          path: data["pg_hba.conf"]
+          pattern: '(?m)^hostssl all\s+all\s+10\.244\.0\.0/16\s+scram-sha-256$'
+      - matchRegex:
+          path: data["pg_hba.conf"]
+          pattern: '(?m)^local\s+all\s+all\s+peer$'
+      - matchRegex:
+          path: data["pg_hba.conf"]
+          pattern: '(?m)^host\s+all\s+all\s+0\.0\.0\.0/0\s+reject$'
+  - it: turns TLS on and includes the agent's settings last
+    asserts:
+      - matchRegex:
+          path: data["postgresql.conf"]
+          pattern: '(?m)^ssl = on$'
+      - matchRegex:
+          path: data["postgresql.conf"]
+          pattern: "include_if_exists = '/var/lib/postgresql/data/pgdata/pgha.conf'\\n$"
+      - notMatchRegex:
+          path: data["postgresql.conf"]
+          pattern: synchronous_standby_names
+  - it: archives with wal-g only when backups are on
+    asserts:
+      - matchRegex:
+          path: data["postgresql.conf"]
+          pattern: '(?m)^archive_mode = off$'
+  - it: archives with wal-g when backups are on
+    set:
+      backup.enabled: true
+      backup.s3.prefix: s3://b/p
+      backup.s3.existingSecret: s3
+    asserts:
+      - matchRegex:
+          path: data["postgresql.conf"]
+          pattern: "(?m)^archive_command = '/pgha/bin/wal-g wal-push \"%p\"'$"
+  - it: renders roles and databases for the agent
+    asserts:
+      - equal:
+          path: data["roles.json"]
+          value: |
+            {"databases":[{"extensions":[],"name":"app","owner":"app"}],"pgbouncer":true,"roles":[{"connectionLimit":-1,"createdb":false,"createrole":false,"inRoles":[],"name":"app","passwordFile":"/etc/pgha/secrets/roles/app/password"}]}
+  - it: refuses settings the chart owns
+    set:
+      postgresql.parameters.primary_conninfo: host=elsewhere
+    asserts:
+      - failedTemplate:
+          errorPattern: managed by the chart
+  - it: refuses backups without storage
+    set:
+      backup.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: backup.s3.prefix is required
+  - it: refuses to run without mutual TLS
+    set:
+      tls.certManager.enabled: false
+    asserts:
+      - failedTemplate:
+          errorPattern: mutual TLS is required

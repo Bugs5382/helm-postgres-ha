@@ -1,0 +1,109 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- $np := .Values.networkPolicy -}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "pgha.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pgha.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "pgha.selectorLabels" . | nindent 6 }}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    # Members: replication, rewind and the peer API.
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "pgha.selectorLabels" . | nindent 14 }}
+      ports:
+        - port: 5432
+        - port: 8009
+    {{- if .Values.pgbouncer.enabled }}
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "pgha.pgbouncerSelectorLabels" . | nindent 14 }}
+      ports:
+        - port: 5432
+    {{- end }}
+    {{- with $np.allowedClients }}
+    - from:
+        {{- toYaml . | nindent 8 }}
+      ports:
+        - port: 5432
+    {{- end }}
+    {{- with $np.metricsFrom }}
+    - from:
+        {{- toYaml . | nindent 8 }}
+      ports:
+        - port: 8008
+    {{- end }}
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "pgha.selectorLabels" . | nindent 14 }}
+      ports:
+        - port: 5432
+        - port: 8009
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    - to:
+        {{- range $np.apiServer.cidrs }}
+        - ipBlock:
+            cidr: {{ . }}
+        {{- end }}
+      ports:
+        {{- range $np.apiServer.ports }}
+        - port: {{ . }}
+        {{- end }}
+    {{- with $np.extraEgress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- if .Values.pgbouncer.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "pgha.pgbouncer" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pgha.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "pgha.pgbouncerSelectorLabels" . | nindent 6 }}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    {{- with $np.allowedClients }}
+    - from:
+        {{- toYaml . | nindent 8 }}
+      ports:
+        - port: 6432
+    {{- else }}
+    []
+    {{- end }}
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "pgha.selectorLabels" . | nindent 14 }}
+      ports:
+        - port: 5432
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+{{- end }}
+{{- end }}

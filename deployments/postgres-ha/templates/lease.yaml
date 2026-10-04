@@ -1,0 +1,25 @@
+# The cluster Lease: its holder is the primary. The chart creates it empty and
+# never manages its spec; helm keeps it on uninstall so a reinstall over the
+# same volumes keeps the cluster's identity.
+apiVersion: coordination.k8s.io/v1
+kind: Lease
+metadata:
+  name: {{ include "pgha.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pgha.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+spec: {}
+---
+# The backup Lease: held by the member running a base backup.
+apiVersion: coordination.k8s.io/v1
+kind: Lease
+metadata:
+  name: {{ include "pgha.backupLease" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pgha.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+spec: {}
