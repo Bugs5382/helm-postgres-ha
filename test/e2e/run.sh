@@ -103,4 +103,23 @@ hba_updated() { [ "$(sql "$P" "select count(*) from pg_hba_file_rules where addr
 wait_for 150 hba_updated || fail "pg_hba.conf change did not reach $P"
 [ "$($K get pods -l "app.kubernetes.io/instance=$R,app.kubernetes.io/name=postgres-ha" -o jsonpath='{.items[*].metadata.uid}')" = "$UIDS" ] || fail "a reloadable change restarted the members"
 
+log "rebuild: pod 0 loses its volume while another member is primary"
+if [ "$(primary)" = "$R-0" ]; then
+  $K exec "$R-0" -c postgres -- /pgha/bin/pgha switchover --to "$R-1" >/dev/null
+  not_zero() { local p; p=$(primary); [ -n "$p" ] && [ "$p" != "$R-0" ] && ! in_recovery "$p"; }
+  wait_for 60 not_zero || fail "could not move the primary off $R-0"
+  wait_for 120 all_streaming || fail "cluster did not settle before the rebuild"
+fi
+P=$(primary)
+SYSID=$($K get lease "$R" -o jsonpath='{.metadata.annotations.postgres-ha/system-identifier}')
+app_write before-rebuild || fail "write before the rebuild failed"
+$K delete pvc "data-$R-0" --wait=false >/dev/null
+$K delete pod "$R-0" >/dev/null
+wait_for 240 all_streaming || fail "$R-0 did not come back streaming"
+in_recovery "$R-0" || fail "$R-0 came back read-write on an empty volume"
+[ "$(sql "$R-0" 'select system_identifier from pg_control_system()')" = "$SYSID" ] || fail "$R-0 has another system identifier"
+$K logs "$R-0" -c postgres | grep -q 'bootstrapping the cluster' && fail "$R-0 ran initdb over an existing cluster"
+wait_for 30 has_row "$R-0" before-rebuild || fail "$R-0 is missing data from $P"
+[ "$(primary)" = "$P" ] || fail "the rebuild moved the primary"
+
 log "all failover tests passed"
