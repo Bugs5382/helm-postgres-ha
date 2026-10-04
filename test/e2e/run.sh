@@ -25,6 +25,23 @@ if $K exec client -- env PGSSLMODE=disable psql "host=$R-primary.$NS.svc user=ap
 fi
 [ "$(sql "$P" "select count(*) from pg_stat_ssl s join pg_stat_replication r using (pid) where s.ssl")" = "2" ] || fail "replication is not over TLS"
 
+log "network policy: only allowed clients reach the members and the pooler"
+image=$($K get sts "$R" -o jsonpath='{.spec.template.spec.containers[0].image}')
+sed -e "s|POSTGRES_IMAGE|$image|" -e "s|RELEASE|$R|g" -e 's|name: client|name: outsider|' -e 's|e2e-client: "true"|e2e-client: "false"|' "$HERE/client.yaml" | $K apply -f - >/dev/null
+kubectl -n "$NS" wait --for=condition=Ready pod/outsider --timeout=120s >/dev/null || fail "the outsider pod did not start"
+reach() { $K exec "$1" -- bash -c "timeout 4 bash -c '</dev/tcp/$2/$3'" >/dev/null 2>&1; }
+P=$(primary)
+for target in "$R-primary.$NS.svc 5432" "$R-pgbouncer.$NS.svc 5432" "$P.$R-headless.$NS.svc 8009" "$P.$R-headless.$NS.svc 8008"; do
+  # shellcheck disable=SC2086 # host and port are two words on purpose
+  if reach outsider $target; then fail "a pod outside the allowed clients reached $target"; fi
+done
+# shellcheck disable=SC2086
+reach client $R-primary.$NS.svc 5432 || fail "the allowed client cannot reach the primary"
+# shellcheck disable=SC2086
+reach client $R-pgbouncer.$NS.svc 5432 || fail "the allowed client cannot reach pgbouncer"
+if reach client "$P.$R-headless.$NS.svc" 8009; then fail "an application client reached the peer API"; fi
+$K delete pod outsider --wait=false >/dev/null
+
 log "unplanned failover: freeze the primary's node"
 OLD=$P
 NODE=$($K get pod "$OLD" -o jsonpath='{.spec.nodeName}')
