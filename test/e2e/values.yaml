@@ -1,0 +1,28 @@
+# Values for the end-to-end tests: small resources, the locally built agent
+# image, and the kind pod network.
+agent:
+  image:
+    tag: e2e
+    pullPolicy: IfNotPresent
+  logLevel: debug
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    memory: 512Mi
+storage:
+  size: 1Gi
+postgresql:
+  allowedCIDRs: ["10.244.0.0/16"]
+  parameters:
+    shared_buffers: 64MB
+    effective_cache_size: 192MB
+    max_slot_wal_keep_size: 512MB
+    wal_keep_size: 64MB
+    max_wal_size: 256MB
+networkPolicy:
+  allowedClients:
+    - podSelector:
+        matchLabels:
+          e2e-client: "true"

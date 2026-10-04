@@ -54,6 +54,7 @@ Until a release publishes it, build and push it yourself and set `agent.image`.
 task test                     # Go unit tests
 task lint                     # gofmt, golangci-lint, yamllint
 bash test/chart/checks.sh     # helm lint, kubeconform, schema and unit tests
+bash test/e2e/run.sh          # failover tests on a kind cluster (see test/e2e)
 ```
 
 ## ⚖️ License
