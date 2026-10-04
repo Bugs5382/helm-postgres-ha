@@ -117,3 +117,8 @@ tests:
       postgresql.allowedCIDRs: []
     asserts:
       - failedTemplate: {}
+  - it: gives the tools init container room to copy ~120 MB of binaries
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].resources.limits.memory
+          value: 256Mi
