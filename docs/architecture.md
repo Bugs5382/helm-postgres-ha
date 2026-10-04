@@ -42,7 +42,10 @@ cannot repoint clients.
    The Lease is taken with an optimistic-concurrency update, so two candidates can never both win.
 6. **Promotion** runs `pg_promote()` over the local socket while the loop keeps renewing. If it does
    not finish in time the member gives the Lease back and stays a standby; the Service is never
-   pointed at a server that cannot take writes.
+   pointed at a server that cannot take writes. Once the new primary is up it logs in to every
+   PgBouncer pod's admin console and runs `KILL` then `RESUME` for each database, so no pooled
+   connection stays on the old primary. A server that hangs rather than dies keeps acknowledging
+   TCP, so timeouts alone would leave clients queued behind it.
 7. **Following.** A standby connects to the holder's headless name with `verify-full` TLS, its pod
    name as `application_name` and its own replication slot, and reloads when the holder changes.
 8. **Rejoin.** Data that last ran read-write (or carries the `pgha.rejoin` marker) is rewound with

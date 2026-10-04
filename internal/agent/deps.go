@@ -109,6 +109,12 @@ type BackupRole struct {
 	StreamingStandby bool
 }
 
+// Poolers drops every PgBouncer's connections after a promotion; nil when
+// PgBouncer is off.
+type Poolers interface {
+	Reset(ctx context.Context) (int, error)
+}
+
 // Backups is the scheduled base backup runner; nil when backups are off.
 type Backups interface {
 	Tick(ctx context.Context, role BackupRole)

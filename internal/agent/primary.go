@@ -202,6 +202,7 @@ func (a *Agent) primaryDuties(ctx context.Context, rec lease.Record, l local) {
 	}
 	if first {
 		a.clearOtherPrimaries(ctx)
+		a.resetPoolers()
 	}
 	a.setRole(ctx, kube.RolePrimary)
 	a.updateSync(ctx)
@@ -219,6 +220,26 @@ func (a *Agent) primaryDuties(ctx context.Context, rec lease.Record, l local) {
 		a.bk.RequestNow()
 		a.bootstrapped = false
 	}
+}
+
+// resetPoolers drops PgBouncer's connections to the old primary, in the
+// background so a dead pooler pod cannot hold up the loop.
+func (a *Agent) resetPoolers() {
+	if a.poolers == nil {
+		return
+	}
+	a.bg.Add(1)
+	go func() {
+		defer a.bg.Done()
+		ctx, cancel := context.WithTimeout(a.runCtx, 15*time.Second)
+		defer cancel()
+		start := a.now()
+		n, err := a.poolers.Reset(ctx)
+		if err != nil {
+			a.log.Warn("some poolers could not be reset", golog.F("reset", n), golog.F("error", err.Error()))
+		}
+		a.log.Info("poolers reset after the promotion", golog.F("reset", n), golog.F("elapsed_ms", a.now().Sub(start).Milliseconds()))
+	}()
 }
 
 // clearOtherPrimaries takes the primary label off every other member, so the

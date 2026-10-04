@@ -69,6 +69,8 @@ type Options struct {
 	Metrics *metrics.Set
 	// Backups is nil when backups are off.
 	Backups Backups
+	// Poolers is nil when PgBouncer is off.
+	Poolers Poolers
 	// ReadSecret reads a mounted password file.
 	ReadSecret func(path string) (string, error)
 	// LoadSpec reads the role and database spec.
@@ -80,20 +82,21 @@ type Options struct {
 
 // Agent is one member's control loop.
 type Agent struct {
-	cfg   config.Config
-	topo  cluster.Topology
-	me    string
-	log   golog.Logger
-	node  Node
-	lease Leases
-	peers Peers
-	kube  Kube
-	m     *metrics.Set
-	bk    Backups
-	read  func(string) (string, error)
-	spec  func(string) (pg.Spec, error)
-	stamp func(string) string
-	now   func() time.Time
+	cfg     config.Config
+	topo    cluster.Topology
+	me      string
+	log     golog.Logger
+	node    Node
+	lease   Leases
+	peers   Peers
+	kube    Kube
+	m       *metrics.Set
+	bk      Backups
+	poolers Poolers
+	read    func(string) (string, error)
+	spec    func(string) (pg.Spec, error)
+	stamp   func(string) string
+	now     func() time.Time
 
 	// Read by the watchdog and the HTTP handlers.
 	lastRenew atomic.Int64 // unix nanos of the send time of the last successful renew
@@ -138,7 +141,7 @@ type task struct {
 func New(o Options) *Agent {
 	a := &Agent{
 		cfg: o.Config, topo: o.Config.Topology, me: o.Config.PodName, log: o.Log,
-		node: o.Node, lease: o.Leases, peers: o.Peers, kube: o.Kube, m: o.Metrics, bk: o.Backups,
+		node: o.Node, lease: o.Leases, peers: o.Peers, kube: o.Kube, m: o.Metrics, bk: o.Backups, poolers: o.Poolers,
 		read: o.ReadSecret, spec: o.LoadSpec, stamp: o.FileStamp, now: o.Now,
 		runCtx: context.Background(),
 	}

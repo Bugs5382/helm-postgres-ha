@@ -56,6 +56,15 @@ spec:
           protocol: UDP
         - port: 53
           protocol: TCP
+    {{- if .Values.pgbouncer.enabled }}
+    # The new primary resets the poolers on their admin console.
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "pgha.pgbouncerSelectorLabels" . | nindent 14 }}
+      ports:
+        - port: 6432
+    {{- end }}
     - to:
         {{- range $np.apiServer.cidrs }}
         - ipBlock:
@@ -83,13 +92,17 @@ spec:
       {{- include "pgha.pgbouncerSelectorLabels" . | nindent 6 }}
   policyTypes: [Ingress, Egress]
   ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "pgha.selectorLabels" . | nindent 14 }}
+      ports:
+        - port: 6432
     {{- with $np.allowedClients }}
     - from:
         {{- toYaml . | nindent 8 }}
       ports:
         - port: 6432
-    {{- else }}
-    []
     {{- end }}
   egress:
     - to:

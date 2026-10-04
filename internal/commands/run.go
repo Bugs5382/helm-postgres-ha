@@ -49,6 +49,7 @@ import (
 	"github.com/Bugs5382/helm-postgres-ha/internal/metrics"
 	"github.com/Bugs5382/helm-postgres-ha/internal/peer"
 	"github.com/Bugs5382/helm-postgres-ha/internal/pg"
+	"github.com/Bugs5382/helm-postgres-ha/internal/pooler"
 	"github.com/Bugs5382/helm-postgres-ha/internal/proc"
 	"github.com/Bugs5382/helm-postgres-ha/internal/server"
 )
@@ -164,6 +165,19 @@ func run(parent context.Context) error {
 		ReadSecret: pg.ReadSecret,
 		LoadSpec:   pg.LoadSpec,
 		FileStamp:  fileStamp,
+	}
+	if cfg.PgBouncerService != "" {
+		opts.Poolers = pooler.New(
+			pooler.NewEndpoints(cs, cfg.Topology.Namespace, cfg.PgBouncerService),
+			pooler.ConsoleAdmin{
+				Port:     6432,
+				User:     pg.RolePgBouncer,
+				Password: func() (string, error) { return pg.ReadSecret(cfg.SecretFile("pgbouncer")) },
+				CAFile:   filepath.Join(cfg.TLSDir, "ca.crt"),
+				Timeout:  3 * time.Second,
+			},
+			log,
+		)
 	}
 	if cfg.Backup.Enabled {
 		bl := lease.New(cs, cfg.Topology.Namespace, cfg.BackupLease, backupLeaseDuration)

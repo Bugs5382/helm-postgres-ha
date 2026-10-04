@@ -737,3 +737,33 @@ func TestStrictSyncListsEveryOtherMember(t *testing.T) {
 		t.Fatalf("strict sync names = %q", got)
 	}
 }
+
+// --- poolers ---
+
+type fakePoolers struct {
+	mu     sync.Mutex
+	resets int
+}
+
+func (f *fakePoolers) Reset(context.Context) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.resets++
+	return 2, nil
+}
+
+func TestNewPrimaryResetsThePoolersOncePerTerm(t *testing.T) {
+	h := expiredHarness(t, "pg-1")
+	fp := &fakePoolers{}
+	h.a.poolers = fp
+	h.peers.set("pg-0", down)
+	h.peers.set("pg-2", idleStandby(100))
+	h.tick()   // takes the lease
+	h.tick()   // promotes
+	h.settle() // primary duties
+	h.tick()
+	h.a.WaitBackground()
+	if fp.resets != 1 {
+		t.Fatalf("poolers reset %d times, want 1", fp.resets)
+	}
+}
