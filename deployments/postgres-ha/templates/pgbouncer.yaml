@@ -1,0 +1,166 @@
+{{- if .Values.pgbouncer.enabled }}
+{{- $name := include "pgha.name" . -}}
+{{- $pb := .Values.pgbouncer -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "pgha.pgbouncer" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pgha.labels" . | nindent 4 }}
+data:
+  pgbouncer.ini: |
+    {{- include "pgha.pgbouncerIni" . | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "pgha.pgbouncer" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pgha.labels" . | nindent 4 }}
+spec:
+  replicas: {{ $pb.replicas }}
+  selector:
+    matchLabels:
+      {{- include "pgha.pgbouncerSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "pgha.pgbouncerSelectorLabels" . | nindent 8 }}
+      annotations:
+        # The hash of the rendered pgbouncer.ini, so any change to it rolls the pods.
+        checksum/config: {{ include "pgha.pgbouncerIni" . | trim | sha256sum }}
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 70
+        runAsGroup: 70
+        fsGroup: 70
+        seccompProfile:
+          type: RuntimeDefault
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    {{- include "pgha.pgbouncerSelectorLabels" . | nindent 20 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        # PgBouncer reads its own login from a file; build it from the Secret
+        # into memory so the password never lands in the ConfigMap.
+        - name: userlist
+          image: {{ include "pgha.pgbouncerImage" . }}
+          imagePullPolicy: {{ $pb.image.pullPolicy }}
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              pw=$(sed 's/"/""/g' /etc/pgbouncer/auth/password)
+              printf '"pgbouncer_auth" "%s"\n' "$pw" > /run/pgbouncer/userlist.txt
+              chmod 600 /run/pgbouncer/userlist.txt
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            {{- toYaml $pb.resources | nindent 12 }}
+          volumeMounts:
+            - name: auth
+              mountPath: /etc/pgbouncer/auth
+              readOnly: true
+            - name: run
+              mountPath: /run/pgbouncer
+      containers:
+        - name: pgbouncer
+          image: {{ include "pgha.pgbouncerImage" . }}
+          imagePullPolicy: {{ $pb.image.pullPolicy }}
+          command: ["/usr/bin/pgbouncer", "/etc/pgbouncer/config/pgbouncer.ini"]
+          ports:
+            - name: pgbouncer
+              containerPort: 6432
+          readinessProbe:
+            tcpSocket:
+              port: pgbouncer
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: pgbouncer
+            periodSeconds: 10
+            failureThreshold: 6
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            {{- toYaml $pb.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/pgbouncer/config
+              readOnly: true
+            - name: tls
+              mountPath: /etc/pgbouncer/tls
+              readOnly: true
+            - name: run
+              mountPath: /run/pgbouncer
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "pgha.pgbouncer" . }}
+        - name: tls
+          secret:
+            secretName: {{ include "pgha.pgbouncerTLSSecret" . }}
+            defaultMode: 0440
+        - name: auth
+          secret:
+            secretName: {{ include "pgha.credSecret" (dict "root" . "name" "pgbouncer") }}
+            items:
+              - key: {{ include "pgha.credKey" (dict "root" . "name" "pgbouncer") }}
+                path: password
+        - name: run
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Mi
+        - name: tmp
+          emptyDir:
+            sizeLimit: 16Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "pgha.pgbouncer" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pgha.labels" . | nindent 4 }}
+  {{- with .Values.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  selector:
+    {{- include "pgha.pgbouncerSelectorLabels" . | nindent 4 }}
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: pgbouncer
+{{- end }}

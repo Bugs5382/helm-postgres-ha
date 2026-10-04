@@ -1,0 +1,14 @@
+apiVersion: v2
+name: postgres-ha
+description: Highly available PostgreSQL with lease-based failover and fencing, WAL-G backup and restore, and PgBouncer.
+type: application
+version: 0.1.0
+# The PostgreSQL release the chart runs. One major per chart line.
+appVersion: "18.6"
+kubeVersion: ">=1.29.0-0"
+keywords: [postgresql, postgres, high-availability, failover, replication, wal-g, pgbouncer]
+home: https://github.com/Bugs5382/helm-postgres-ha
+sources: [https://github.com/Bugs5382/helm-postgres-ha]
+maintainers:
+  - name: Bugs5382
+    url: https://github.com/Bugs5382

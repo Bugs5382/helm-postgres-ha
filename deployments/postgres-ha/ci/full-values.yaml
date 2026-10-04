@@ -1,0 +1,32 @@
+# Every optional feature on, for helm lint and kubeconform.
+postgresql:
+  allowedCIDRs: ["10.244.0.0/16", "fd00::/64"]
+  synchronous:
+    mode: strict
+    count: 2
+backup:
+  enabled: true
+  s3:
+    prefix: s3://bucket/cluster
+    existingSecret: s3-creds
+serviceMonitor:
+  enabled: true
+networkPolicy:
+  allowedClients:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: apps
+  metricsFrom:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: monitoring
+roles:
+  - name: app
+  - name: reporting
+    existingSecret: reporting-password
+    connectionLimit: 10
+    inRoles: [pg_read_all_data]
+databases:
+  - name: app
+    owner: app
+    extensions: [pgcrypto]

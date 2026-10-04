@@ -1,0 +1,43 @@
+suite: pgbouncer
+templates: [pgbouncer.yaml]
+set:
+  postgresql.allowedCIDRs: ["10.244.0.0/16"]
+tests:
+  - it: uses TLS both ways and looks every role up through auth_query
+    documentSelector: {path: kind, value: ConfigMap}
+    asserts:
+      - matchRegex:
+          path: data["pgbouncer.ini"]
+          pattern: '(?m)^client_tls_sslmode = require$'
+      - matchRegex:
+          path: data["pgbouncer.ini"]
+          pattern: '(?m)^server_tls_sslmode = verify-full$'
+      - matchRegex:
+          path: data["pgbouncer.ini"]
+          pattern: '(?m)^auth_query = SELECT usename, passwd FROM pgbouncer.get_auth\(\$1\)$'
+      - matchRegex:
+          path: data["pgbouncer.ini"]
+          pattern: '(?m)^\* = host=RELEASE-NAME-primary\.NAMESPACE\.svc port=5432$'
+  - it: drops a server connection whose traffic goes unacknowledged, so a frozen primary cannot pin clients
+    documentSelector: {path: kind, value: ConfigMap}
+    asserts:
+      - matchRegex:
+          path: data["pgbouncer.ini"]
+          pattern: '(?m)^tcp_user_timeout = 10000$'
+  - it: reads its login from the Secret the user names
+    documentSelector: {path: kind, value: Deployment}
+    set:
+      credentials.pgbouncer.existingSecret: pb-secret
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: auth
+            secret:
+              secretName: pb-secret
+              items: [{key: password, path: password}]
+  - it: renders nothing when off
+    set:
+      pgbouncer.enabled: false
+    asserts:
+      - hasDocuments: {count: 0}

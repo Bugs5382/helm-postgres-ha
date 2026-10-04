@@ -1,0 +1,85 @@
+suite: security
+set:
+  postgresql.allowedCIDRs: ["10.244.0.0/16"]
+tests:
+  - it: grants the members only their Leases and their own pods, by name
+    templates: [rbac.yaml]
+    documentSelector: {path: kind, value: Role}
+    asserts:
+      - equal:
+          path: rules
+          value:
+            - apiGroups: [coordination.k8s.io]
+              resources: [leases]
+              resourceNames: [RELEASE-NAME, RELEASE-NAME-backup]
+              verbs: [get, update, patch]
+            - apiGroups: [""]
+              resources: [pods]
+              resourceNames: [RELEASE-NAME-0, RELEASE-NAME-1, RELEASE-NAME-2]
+              verbs: [get, patch]
+  - it: mounts no token through the ServiceAccount by default
+    templates: [rbac.yaml]
+    documentSelector: {path: kind, value: ServiceAccount}
+    asserts:
+      - equal:
+          path: automountServiceAccountToken
+          value: false
+  - it: ships NetworkPolicies by default
+    templates: [networkpolicy.yaml]
+    asserts:
+      - hasDocuments: {count: 2}
+      - equal:
+          path: spec.policyTypes
+          value: [Ingress, Egress]
+        documentIndex: 0
+  - it: opens the peer API only to members
+    templates: [networkpolicy.yaml]
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: spec.ingress[0].ports
+          value: [{port: 5432}, {port: 8009}]
+      - equal:
+          path: spec.ingress[0].from[0].podSelector.matchLabels
+          value: {app.kubernetes.io/name: postgres-ha, app.kubernetes.io/instance: RELEASE-NAME}
+  - it: keeps one disruption at a time
+    templates: [pdb.yaml]
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: spec.maxUnavailable
+          value: 1
+  - it: issues a per-release CA and a member certificate with the full names
+    templates: [certificates.yaml]
+    documentSelector: {path: metadata.name, value: RELEASE-NAME-tls}
+    asserts:
+      - contains:
+          path: spec.dnsNames
+          content: "*.RELEASE-NAME-headless.NAMESPACE.svc"
+      - equal:
+          path: spec.usages
+          value: [digital signature, key encipherment, server auth, client auth]
+      - equal:
+          path: spec.issuerRef.name
+          value: RELEASE-NAME-ca
+  - it: gives PgBouncer a server-only certificate
+    templates: [certificates.yaml]
+    documentSelector: {path: metadata.name, value: RELEASE-NAME-pgbouncer-tls}
+    asserts:
+      - equal:
+          path: spec.usages
+          value: [digital signature, key encipherment, server auth]
+  - it: routes writes to the member labelled primary
+    templates: [services.yaml]
+    documentSelector: {path: metadata.name, value: RELEASE-NAME-primary}
+    asserts:
+      - equal:
+          path: spec.selector
+          value: {app.kubernetes.io/name: postgres-ha, app.kubernetes.io/instance: RELEASE-NAME, postgres-ha/role: primary}
+  - it: routes reads to members labelled replica
+    templates: [services.yaml]
+    documentSelector: {path: metadata.name, value: RELEASE-NAME-replica}
+    asserts:
+      - equal:
+          path: spec.selector["postgres-ha/role"]
+          value: replica

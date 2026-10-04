@@ -1,0 +1,332 @@
+{{- $name := include "pgha.name" . -}}
+{{- if lt (len .Values.postgresql.allowedCIDRs) 1 }}{{ fail "postgresql.allowedCIDRs is required: set it to your pod network, for example [\"10.244.0.0/16\"]" }}{{ end }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pgha.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "pgha.headless" . }}
+  replicas: {{ .Values.replicas }}
+  # Roles come from the Lease, not from ordinals, so members start together.
+  podManagementPolicy: Parallel
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      {{- include "pgha.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "pgha.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        # Rolls the pods only for settings that need a restart; everything
+        # else is reloaded in place by the agent.
+        checksum/restart: {{ include "pgha.restartChecksum" . }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ $name }}
+      automountServiceAccountToken: true
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      enableServiceLinks: false
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      affinity:
+        podAntiAffinity:
+          {{- if eq .Values.affinity.podAntiAffinity "hard" }}
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - topologyKey: {{ .Values.affinity.topologyKey }}
+              labelSelector:
+                matchLabels:
+                  {{- include "pgha.selectorLabels" . | nindent 18 }}
+          {{- else }}
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: {{ .Values.affinity.topologyKey }}
+                labelSelector:
+                  matchLabels:
+                    {{- include "pgha.selectorLabels" . | nindent 20 }}
+          {{- end }}
+        {{- with .Values.affinity.extra }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- if .Values.affinity.zoneSpread }}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              {{- include "pgha.selectorLabels" . | nindent 14 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        - name: tools
+          image: {{ include "pgha.agentImage" . }}
+          imagePullPolicy: {{ .Values.agent.image.pullPolicy }}
+          command: ["/usr/local/bin/pgha", "install", "--dest", "/pgha/bin"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            {{- toYaml .Values.agent.initResources | nindent 12 }}
+          volumeMounts:
+            - name: tools
+              mountPath: /pgha/bin
+      containers:
+        - name: postgres
+          image: {{ include "pgha.postgresImage" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # The agent is PID 1 and runs PostgreSQL as its child, so it can
+          # fence, promote, rewind and restart the server.
+          command: ["/pgha/bin/pgha", "run"]
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_REVISION
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['controller-revision-hash']
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+            - name: PGHA_CLUSTER
+              value: {{ $name | quote }}
+            - name: PGHA_REPLICAS
+              value: {{ .Values.replicas | quote }}
+            - name: PGHA_HEADLESS_SERVICE
+              value: {{ include "pgha.headless" . | quote }}
+            - name: PGHA_LEASE
+              value: {{ $name | quote }}
+            - name: PGHA_BACKUP_LEASE
+              value: {{ include "pgha.backupLease" . | quote }}
+            - name: PGHA_LEASE_DURATION
+              value: {{ .Values.agent.leaseDuration | quote }}
+            - name: PGHA_RENEW_DEADLINE
+              value: {{ .Values.agent.renewDeadline | quote }}
+            - name: PGHA_RETRY_PERIOD
+              value: {{ .Values.agent.retryPeriod | quote }}
+            - name: PGHA_REJOIN_TIMEOUT
+              value: {{ .Values.agent.rejoinTimeout | quote }}
+            - name: PGHA_PROMOTE_TIMEOUT
+              value: {{ .Values.agent.promoteTimeout | quote }}
+            - name: PGHA_PEER_TIMEOUT
+              value: {{ .Values.agent.peerTimeout | quote }}
+            - name: PGHA_SHUTDOWN_TIMEOUT
+              value: {{ printf "%ds" (sub (int .Values.terminationGracePeriodSeconds) 10) | quote }}
+            - name: PGHA_SYNC_MODE
+              value: {{ .Values.postgresql.synchronous.mode | quote }}
+            - name: PGHA_SYNC_COUNT
+              value: {{ .Values.postgresql.synchronous.count | quote }}
+            - name: PGHA_MAX_LAG_ON_FAILOVER
+              value: {{ .Values.agent.maxLagOnFailover | int64 | quote }}
+            - name: PGHA_READY_MAX_LAG
+              value: {{ .Values.agent.readyMaxLag | int64 | quote }}
+            - name: PGHA_INITDB_ARGS
+              value: {{ .Values.postgresql.initdbArgs | quote }}
+            - name: PGHA_BOOTSTRAP_MODE
+              value: {{ .Values.bootstrap.mode | quote }}
+            {{- if eq .Values.bootstrap.mode "restore" }}
+            - name: PGHA_RESTORE_BACKUP
+              value: {{ .Values.bootstrap.restore.backup | quote }}
+            - name: PGHA_RESTORE_PREFIX
+              value: {{ .Values.bootstrap.restore.prefix | quote }}
+            - name: PGHA_RESTORE_TARGET_TIME
+              value: {{ .Values.bootstrap.restore.targetTime | quote }}
+            - name: PGHA_RESTORE_TARGET_LSN
+              value: {{ .Values.bootstrap.restore.targetLSN | quote }}
+            - name: PGHA_RESTORE_TARGET_NAME
+              value: {{ .Values.bootstrap.restore.targetName | quote }}
+            - name: PGHA_RESTORE_TARGET_EXCLUSIVE
+              value: {{ .Values.bootstrap.restore.targetExclusive | quote }}
+            {{- end }}
+            {{- if .Values.pgbouncer.enabled }}
+            - name: PGHA_PGBOUNCER_SERVICE
+              value: {{ include "pgha.pgbouncer" . | quote }}
+            {{- end }}
+            - name: LOG_LEVEL
+              value: {{ .Values.agent.logLevel | quote }}
+            - name: LOG_FORMAT
+              value: {{ .Values.agent.logFormat | quote }}
+            {{- with .Values.agent.otlpEndpoint }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if .Values.backup.enabled }}
+            - name: PGHA_BACKUP_ENABLED
+              value: "true"
+            - name: PGHA_BACKUP_SCHEDULE
+              value: {{ .Values.backup.schedule | quote }}
+            - name: PGHA_BACKUP_SOURCE
+              value: {{ .Values.backup.source | quote }}
+            - name: PGHA_BACKUP_RETAIN_FULL
+              value: {{ .Values.backup.retainFull | quote }}
+            - name: PGHA_BACKUP_RETAIN_DAYS
+              value: {{ .Values.backup.retainDays | quote }}
+            - name: PGHA_BACKUP_TIMEOUT
+              value: {{ .Values.backup.timeout | quote }}
+            - name: WALG_S3_PREFIX
+              value: {{ .Values.backup.s3.prefix | quote }}
+            - name: AWS_REGION
+              value: {{ .Values.backup.s3.region | quote }}
+            {{- with .Values.backup.s3.endpoint }}
+            - name: AWS_ENDPOINT
+              value: {{ . | quote }}
+            {{- end }}
+            - name: AWS_S3_FORCE_PATH_STYLE
+              value: {{ .Values.backup.s3.forcePathStyle | quote }}
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.backup.s3.existingSecret }}
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.backup.s3.existingSecret }}
+                  key: AWS_SECRET_ACCESS_KEY
+            {{- range $k, $v := .Values.backup.env }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+            {{- end }}
+          ports:
+            - name: postgres
+              containerPort: 5432
+            - name: http
+              containerPort: 8008
+            - name: peer
+              containerPort: 8009
+          # Liveness is the agent's loop, never PostgreSQL itself, so a long
+          # crash recovery or clone is not killed half way.
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 2
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: tools
+              mountPath: /pgha/bin
+              readOnly: true
+            - name: config
+              mountPath: /etc/pgha/config
+              readOnly: true
+            - name: tls
+              mountPath: /etc/pgha/tls
+              readOnly: true
+            - name: secrets
+              mountPath: /etc/pgha/secrets
+              readOnly: true
+            - name: run
+              mountPath: /run/pgha
+            - name: socket
+              mountPath: /var/run/postgresql
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tools
+          emptyDir:
+            sizeLimit: 256Mi
+        - name: run
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Mi
+        - name: socket
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Mi
+        - name: tmp
+          emptyDir:
+            sizeLimit: 1Gi
+        - name: config
+          configMap:
+            name: {{ $name }}-config
+        - name: tls
+          secret:
+            secretName: {{ include "pgha.tlsSecret" . }}
+            defaultMode: 0440
+        - name: secrets
+          projected:
+            defaultMode: 0440
+            sources:
+              {{- range $c := include "pgha.credentialNames" . | fromJsonArray }}
+              - secret:
+                  name: {{ include "pgha.credSecret" (dict "root" $ "name" $c) }}
+                  items:
+                    - key: {{ include "pgha.credKey" (dict "root" $ "name" $c) }}
+                      path: {{ $c }}/password
+              {{- end }}
+              {{- range .Values.roles }}
+              - secret:
+                  name: {{ include "pgha.roleSecret" (dict "root" $ "role" .) }}
+                  items:
+                    - key: {{ default "password" .passwordKey }}
+                      path: roles/{{ .name }}/password
+              {{- end }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          {{- include "pgha.selectorLabels" . | nindent 10 }}
+      spec:
+        accessModes:
+          {{- toYaml .Values.storage.accessModes | nindent 10 }}
+        {{- with .Values.storage.storageClassName }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.storage.size }}

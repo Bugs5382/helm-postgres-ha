@@ -1,0 +1,16 @@
+postgres-ha cluster {{ include "pgha.name" . }} with {{ .Values.replicas }} members.
+
+Read-write: {{ include "pgha.primary" . }}.{{ .Release.Namespace }}.svc:5432
+Read-only:  {{ include "pgha.replica" . }}.{{ .Release.Namespace }}.svc:5432
+{{- if .Values.pgbouncer.enabled }}
+Pooled:     {{ include "pgha.pgbouncer" . }}.{{ .Release.Namespace }}.svc:5432
+{{- end }}
+
+Every connection needs TLS (sslmode=verify-full with the CA in the
+{{ include "pgha.tlsSecret" . }} Secret's ca.crt).
+
+Who is primary:
+  kubectl -n {{ .Release.Namespace }} get lease {{ include "pgha.name" . }} -o jsonpath='{.spec.holderIdentity}'
+
+Planned switchover:
+  kubectl -n {{ .Release.Namespace }} exec {{ include "pgha.name" . }}-0 -c postgres -- /pgha/bin/pgha switchover --to any

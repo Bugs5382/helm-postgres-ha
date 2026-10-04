@@ -1,0 +1,119 @@
+suite: statefulset
+templates: [statefulset.yaml]
+set:
+  postgresql.allowedCIDRs: ["10.244.0.0/16"]
+tests:
+  - it: runs the agent as the postgres container's command, from the tools volume
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].command
+          value: ["/pgha/bin/pgha", "run"]
+      - equal:
+          path: spec.template.spec.initContainers[0].command
+          value: ["/usr/local/bin/pgha", "install", "--dest", "/pgha/bin"]
+      - notExists:
+          path: spec.template.spec.shareProcessNamespace
+  - it: pins the postgres image by digest and the agent to the chart version
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: ^docker\.io/library/postgres:18\.6-bookworm@sha256:[a-f0-9]{64}$
+      - equal:
+          path: spec.template.spec.initContainers[0].image
+          value: ghcr.io/bugs5382/helm-postgres-ha/pgha:0.1.0
+  - it: starts members together, since roles come from the Lease
+    asserts:
+      - equal:
+          path: spec.podManagementPolicy
+          value: Parallel
+  - it: requires one member per node by default
+    asserts:
+      - equal:
+          path: spec.template.spec.affinity.podAntiAffinity.requiredDuringSchedulingIgnoredDuringExecution[0].topologyKey
+          value: kubernetes.io/hostname
+  - it: only prefers spreading with soft anti-affinity
+    set:
+      affinity.podAntiAffinity: soft
+    asserts:
+      - exists:
+          path: spec.template.spec.affinity.podAntiAffinity.preferredDuringSchedulingIgnoredDuringExecution
+      - notExists:
+          path: spec.template.spec.affinity.podAntiAffinity.requiredDuringSchedulingIgnoredDuringExecution
+  - it: sets the restricted security context on every container
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.template.spec.securityContext.seccompProfile.type
+          value: RuntimeDefault
+      - equal:
+          path: spec.template.spec.containers[0].securityContext
+          value:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+      - equal:
+          path: spec.template.spec.initContainers[0].securityContext.capabilities.drop
+          value: [ALL]
+  - it: probes the agent's loop for liveness and its role for readiness
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.path
+          value: /livez
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /readyz
+  - it: passes the synchronous mode to the agent
+    set:
+      postgresql.synchronous.mode: strict
+      postgresql.synchronous.count: 2
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: PGHA_SYNC_MODE, value: strict}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: PGHA_SYNC_COUNT, value: "2"}
+  - it: mounts generated credentials, and existing Secrets by name and key
+    set:
+      credentials.superuser.existingSecret: my-su
+      credentials.superuser.passwordKey: pw
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes[?(@.name=="secrets")].projected.sources
+          content:
+            secret:
+              name: my-su
+              items: [{key: pw, path: superuser/password}]
+      - contains:
+          path: spec.template.spec.volumes[?(@.name=="secrets")].projected.sources
+          content:
+            secret:
+              name: RELEASE-NAME-replication
+              items: [{key: password, path: replication/password}]
+  - it: gives WAL-G its environment in the postgres container, where archive_command runs
+    set:
+      backup.enabled: true
+      backup.s3.prefix: s3://bucket/x
+      backup.s3.existingSecret: s3
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: WALG_S3_PREFIX, value: s3://bucket/x}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AWS_ACCESS_KEY_ID
+            valueFrom: {secretKeyRef: {name: s3, key: AWS_ACCESS_KEY_ID}}
+  - it: carries a restart checksum so restart-only settings roll the pods
+    asserts:
+      - matchRegex:
+          path: spec.template.metadata.annotations["checksum/restart"]
+          pattern: ^[a-f0-9]{64}$
+  - it: refuses to render without the allowed client ranges
+    set:
+      postgresql.allowedCIDRs: []
+    asserts:
+      - failedTemplate: {}

@@ -1,0 +1,250 @@
+# Default values for postgres-ha. Every value is checked by values.schema.json.
+# The defaults are production-safe: mutual TLS, NetworkPolicies, a PDB, hard
+# anti-affinity and quorum synchronous replication are all on.
+
+# -- Override the cluster name. Defaults to the release name. Every resource
+# is named after it (<name>-0..N-1, <name>-primary, <name>-replica, ...).
+fullnameOverride: ""
+
+# -- Number of members. Three or more gives a quorum for failover.
+replicas: 3
+
+# -- Labels added to every resource.
+commonLabels: {}
+
+# PostgreSQL itself: the official image, pinned by digest. The chart supports
+# one major per chart line (see appVersion).
+image:
+  registry: docker.io
+  repository: library/postgres
+  tag: "18.6-bookworm"
+  digest: "sha256:3725f4e2499eef5134592b3b4ab79a543ed7f8e533b05b5b637af926630f6650"
+  pullPolicy: IfNotPresent
+
+# The agent: built from this repository (pgha plus a static wal-g). An init
+# container copies both into the PostgreSQL container, where pgha runs as
+# PID 1 and supervises the server.
+agent:
+  image:
+    registry: ghcr.io
+    repository: bugs5382/helm-postgres-ha/pgha
+    # -- Defaults to the chart version.
+    tag: ""
+    # -- Set a digest to pin the image.
+    digest: ""
+    pullPolicy: IfNotPresent
+  # -- How long a Lease holder may go without renewing before others may take over.
+  leaseDuration: 15s
+  # -- A primary that has not renewed for this long stops PostgreSQL (fencing).
+  # Must be shorter than leaseDuration minus retryPeriod.
+  renewDeadline: 10s
+  # -- Reconcile interval.
+  retryPeriod: 2s
+  # -- A standby that cannot stream from a healthy primary for this long is rewound or re-cloned.
+  rejoinTimeout: 60s
+  promoteTimeout: 30s
+  peerTimeout: 2s
+  # -- Most WAL (bytes) a standby may be behind the last primary position and still be promoted.
+  maxLagOnFailover: 1048576
+  # -- Replay lag (bytes) past which a standby reports not ready. 0 turns it off.
+  readyMaxLag: 67108864
+  logLevel: error
+  logFormat: json
+  # -- OTLP/gRPC endpoint (host:port) for traces. Empty sends none.
+  otlpEndpoint: ""
+  initResources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 64Mi
+
+imagePullSecrets: []
+
+storage:
+  size: 10Gi
+  # -- Empty uses the cluster default.
+  storageClassName: ""
+  accessModes: [ReadWriteOnce]
+
+# Resources for the postgres container (PostgreSQL and the agent).
+resources:
+  requests:
+    cpu: 250m
+    memory: 1Gi
+  limits:
+    memory: 1Gi
+
+postgresql:
+  # -- Client address ranges pg_hba.conf accepts (TLS and SCRAM only). Required:
+  # set it to your pod network, for example ["10.244.0.0/16"].
+  allowedCIDRs: []
+  synchronous:
+    # -- quorum: a commit waits for `count` of the standbys that are streaming
+    # (ANY n), and for none while no standby streams. strict: a commit waits
+    # even when no standby streams (writes stop rather than run unprotected).
+    # off: asynchronous. The agent manages synchronous_standby_names.
+    mode: quorum
+    count: 1
+  # -- initdb options for a new cluster.
+  initdbArgs: "--encoding=UTF8 --locale=C.UTF-8 --data-checksums"
+  # -- Extra pg_hba.conf lines, placed before the final reject rules.
+  extraHBA: []
+  # -- postgresql.conf settings. Merged over the chart's defaults; agent-owned
+  # settings (primary_conninfo, primary_slot_name, restore_command,
+  # recovery_target_*) and the TLS, socket and archive settings cannot be set here.
+  parameters:
+    max_connections: "200"
+    shared_buffers: 256MB
+    effective_cache_size: 768MB
+    work_mem: 4MB
+    maintenance_work_mem: 64MB
+    wal_keep_size: 1GB
+    max_slot_wal_keep_size: 4GB
+    max_wal_size: 2GB
+
+# Application roles. Each gets a generated password Secret
+# (<name>-role-<role>) unless existingSecret is set.
+roles:
+  - name: app
+    existingSecret: ""
+    passwordKey: password
+    createdb: false
+    createrole: false
+    connectionLimit: -1
+    inRoles: []
+
+# Databases to create. The owner must be a listed role (or postgres).
+databases:
+  - name: app
+    owner: app
+    extensions: []
+
+# Built-in credentials. Generated once (<name>-<credential>) by a hook Job
+# and never rewritten, unless existingSecret names your own Secret.
+credentials:
+  superuser:
+    existingSecret: ""
+    passwordKey: password
+  replication:
+    existingSecret: ""
+    passwordKey: password
+  rewind:
+    existingSecret: ""
+    passwordKey: password
+  pgbouncer:
+    existingSecret: ""
+    passwordKey: password
+
+tls:
+  # -- Issue certificates with cert-manager. Required unless existingSecret is set.
+  certManager:
+    enabled: true
+    # -- Issuer to sign with. Empty creates a self-signed CA for this release.
+    issuerRef: {}
+    duration: 2160h
+    renewBefore: 360h
+  # -- Secret with tls.crt, tls.key and ca.crt for the members, used instead
+  # of cert-manager. The certificate needs the DNS names listed in the README
+  # and both serverAuth and clientAuth usages.
+  existingSecret: ""
+  # -- Secret with tls.crt, tls.key and ca.crt for PgBouncer when existingSecret is used.
+  pgbouncerExistingSecret: ""
+
+bootstrap:
+  # -- initdb creates an empty cluster; restore restores a WAL-G backup.
+  mode: initdb
+  restore:
+    # -- Backup name, or LATEST.
+    backup: LATEST
+    # -- WAL-G prefix holding the source backups. Empty uses backup.s3.prefix.
+    prefix: ""
+    # -- Point-in-time target; set at most one.
+    targetTime: ""
+    targetLSN: ""
+    targetName: ""
+    targetExclusive: false
+
+backup:
+  enabled: false
+  # -- Cron schedule (UTC).
+  schedule: "0 3 * * *"
+  # -- standby or primary. With standby, the primary steps in after 5 minutes.
+  source: standby
+  # -- Full backups always kept.
+  retainFull: 7
+  # -- Backups newer than this many days are kept as well.
+  retainDays: 14
+  timeout: 6h
+  s3:
+    # -- WAL-G prefix, for example s3://bucket/cluster.
+    prefix: ""
+    endpoint: ""
+    region: us-east-1
+    forcePathStyle: false
+    # -- Secret with AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY.
+    existingSecret: ""
+  # -- Extra WAL-G environment (WALG_*), for example compression settings.
+  env: {}
+
+pgbouncer:
+  enabled: true
+  replicas: 2
+  image:
+    registry: docker.io
+    repository: edoburu/pgbouncer
+    tag: "v1.26.0-p0"
+    digest: "sha256:b17551c776ef7e5769ef80b956d20f85e2fd25dd8912d31d58f782aad495b711"
+    pullPolicy: IfNotPresent
+  # -- transaction pooling breaks session state (prepared statements across
+  # transactions, advisory locks, LISTEN/NOTIFY); use session where needed.
+  poolMode: transaction
+  defaultPoolSize: 25
+  maxClientConn: 500
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 128Mi
+
+service:
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  # -- NetworkPolicy peers allowed to reach PostgreSQL and PgBouncer.
+  allowedClients: []
+  # -- Peers allowed to scrape the agent's metrics (port 8008).
+  metricsFrom: []
+  # -- Where the API server lives, for the agent's egress.
+  apiServer:
+    cidrs: ["0.0.0.0/0"]
+    ports: [443, 6443]
+  # -- Extra egress rules for the postgres pods (object storage, for example).
+  extraEgress: []
+
+podDisruptionBudget:
+  enabled: true
+  maxUnavailable: 1
+
+affinity:
+  # -- hard requires one member per node; soft prefers it.
+  podAntiAffinity: hard
+  topologyKey: kubernetes.io/hostname
+  # -- Spread members across zones when the nodes are labelled with one.
+  zoneSpread: true
+  # -- Extra affinity merged into the pod spec.
+  extra: {}
+
+nodeSelector: {}
+tolerations: []
+priorityClassName: ""
+terminationGracePeriodSeconds: 120
+podLabels: {}
+podAnnotations: {}
+
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  labels: {}

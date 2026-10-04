@@ -1,0 +1,113 @@
+{{- if .Values.tls.certManager.enabled }}
+{{- $name := include "pgha.name" . -}}
+{{- $ns := .Release.Namespace -}}
+{{- $issuer := .Values.tls.certManager.issuerRef -}}
+{{- if not $issuer }}
+{{- $issuer = dict "name" (printf "%s-ca" $name) "kind" "Issuer" "group" "cert-manager.io" }}
+# A CA for this release alone: a self-signed root that signs only this
+# cluster's certificates, so no other workload's certificate can pass the
+# members' peer checks.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ $name }}-selfsigned
+  namespace: {{ $ns }}
+  labels:
+    {{- include "pgha.labels" . | nindent 4 }}
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ $name }}-ca
+  namespace: {{ $ns }}
+  labels:
+    {{- include "pgha.labels" . | nindent 4 }}
+spec:
+  isCA: true
+  commonName: {{ $name }} postgres-ha CA
+  secretName: {{ $name }}-ca
+  duration: 87600h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    name: {{ $name }}-selfsigned
+    kind: Issuer
+    group: cert-manager.io
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ $name }}-ca
+  namespace: {{ $ns }}
+  labels:
+    {{- include "pgha.labels" . | nindent 4 }}
+spec:
+  ca:
+    secretName: {{ $name }}-ca
+---
+{{- end }}
+# The members' certificate: PostgreSQL's server certificate and the peer
+# API's client and server certificate. The wildcard covers every member's
+# headless name; the peers check it in full.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ $name }}-tls
+  namespace: {{ $ns }}
+  labels:
+    {{- include "pgha.labels" . | nindent 4 }}
+spec:
+  secretName: {{ $name }}-tls
+  duration: {{ .Values.tls.certManager.duration }}
+  renewBefore: {{ .Values.tls.certManager.renewBefore }}
+  commonName: {{ printf "%s.%s.svc" (include "pgha.primary" .) $ns }}
+  dnsNames:
+    - {{ printf "*.%s.%s.svc" (include "pgha.headless" .) $ns | quote }}
+    - {{ printf "*.%s.%s.svc.cluster.local" (include "pgha.headless" .) $ns | quote }}
+    {{- range $svc := list (include "pgha.primary" .) (include "pgha.replica" .) }}
+    - {{ $svc }}
+    - {{ printf "%s.%s" $svc $ns }}
+    - {{ printf "%s.%s.svc" $svc $ns }}
+    - {{ printf "%s.%s.svc.cluster.local" $svc $ns }}
+    {{- end }}
+  usages: [digital signature, key encipherment, server auth, client auth]
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  issuerRef:
+    {{- toYaml $issuer | nindent 4 }}
+{{- if .Values.pgbouncer.enabled }}
+---
+# PgBouncer's own certificate: server names only, so the pooler cannot pose
+# as a member.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "pgha.pgbouncer" . }}-tls
+  namespace: {{ $ns }}
+  labels:
+    {{- include "pgha.labels" . | nindent 4 }}
+spec:
+  secretName: {{ include "pgha.pgbouncer" . }}-tls
+  duration: {{ .Values.tls.certManager.duration }}
+  renewBefore: {{ .Values.tls.certManager.renewBefore }}
+  commonName: {{ printf "%s.%s.svc" (include "pgha.pgbouncer" .) $ns }}
+  dnsNames:
+    {{- $svc := include "pgha.pgbouncer" . }}
+    - {{ $svc }}
+    - {{ printf "%s.%s" $svc $ns }}
+    - {{ printf "%s.%s.svc" $svc $ns }}
+    - {{ printf "%s.%s.svc.cluster.local" $svc $ns }}
+  usages: [digital signature, key encipherment, server auth]
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  issuerRef:
+    {{- toYaml $issuer | nindent 4 }}
+{{- end }}
+{{- end }}
