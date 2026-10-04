@@ -98,16 +98,13 @@ func run(parent context.Context) error {
 	ctx, stop := signal.NotifyContext(parent, syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
-	// go-otel v1.3.2 still builds a metric exporter for an empty endpoint and
-	// logs a failed upload every interval, so it is only started when an
-	// endpoint is set.
-	if cfg.OTLPEndpoint != "" {
-		shutdownOtel, err := gootel.Init(ctx, "pgha", cfg.OTLPEndpoint)
-		if err != nil {
-			log.Warn("tracing disabled", golog.F("error", err.Error()))
-		} else {
-			defer func() { _ = shutdownOtel(context.Background()) }()
-		}
+	// An empty endpoint installs the providers without an exporter: trace IDs
+	// and propagation work, nothing is sent.
+	shutdownOtel, err := gootel.Init(ctx, "pgha", cfg.OTLPEndpoint)
+	if err != nil {
+		log.Warn("tracing disabled", golog.F("error", err.Error()))
+	} else {
+		defer func() { _ = shutdownOtel(context.Background()) }()
 	}
 
 	runner := proc.New()
