@@ -52,12 +52,14 @@ agent:
   logFormat: json
   # -- OTLP/gRPC endpoint (host:port) for traces. Empty sends none.
   otlpEndpoint: ""
+  # -- The tools init container (it copies ~120 MB of binaries) and the
+  # credentials hook Job.
   initResources:
     requests:
       cpu: 10m
-      memory: 32Mi
-    limits:
       memory: 64Mi
+    limits:
+      memory: 256Mi
 
 imagePullSecrets: []
 
