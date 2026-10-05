@@ -314,3 +314,7 @@ metrics:
     labels: {}
     # -- Replay lag, in bytes, that pages after 5 minutes.
     replicationLagBytes: 104857600
+    # -- Age of the last successful base backup that pages (with backups on).
+    backupMaxAgeHours: 26
+    # -- Data volume use, in percent, that warns after 10 minutes.
+    diskUsedPercent: 85
