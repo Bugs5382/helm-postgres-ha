@@ -132,6 +132,29 @@ spec:
               mountPath: /run/pgbouncer
             - name: tmp
               mountPath: /tmp
+        {{- if .Values.metrics.exporters.enabled }}
+        - name: exporter
+          image: {{ include "pgha.pgbouncerExporterImage" . }}
+          imagePullPolicy: {{ .Values.metrics.exporters.pgbouncer.image.pullPolicy }}
+          args:
+            - --pgBouncer.connectionString=postgres://pgbouncer_auth@127.0.0.1:6432/pgbouncer?sslmode=require
+          env:
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "pgha.credSecret" (dict "root" . "name" "pgbouncer") }}
+                  key: {{ include "pgha.credKey" (dict "root" . "name" "pgbouncer") }}
+          ports:
+            - name: exporter
+              containerPort: 9127
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            {{- toYaml .Values.metrics.exporters.pgbouncer.resources | nindent 12 }}
+        {{- end }}
       volumes:
         - name: config
           configMap:

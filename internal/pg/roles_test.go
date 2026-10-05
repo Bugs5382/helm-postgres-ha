@@ -94,6 +94,9 @@ func TestReconcileFreshServer(t *testing.T) {
 		`postgres: CREATE DATABASE "app" OWNER "app"`,
 		`app: CREATE EXTENSION IF NOT EXISTS "pgcrypto"`,
 		`ALTER ROLE "postgres" WITH PASSWORD 'SCRAM-SHA-256$4096:`,
+		`CREATE ROLE "pgha_monitor"`,
+		`ALTER ROLE "pgha_monitor" WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE`,
+		`GRANT pg_monitor TO "pgha_monitor"`,
 	} {
 		if !f.has(want) {
 			t.Errorf("missing statement %q in\n%s", want, strings.Join(f.stmts, "\n"))
@@ -117,7 +120,7 @@ func TestReconcileLeavesMatchingPasswords(t *testing.T) {
 		return s
 	}
 	f := &fakeExec{
-		passwords: map[string]string{"postgres": v("su"), "replicator": v("rep"), "pgha_rewind": v("rw"), "app": v("apppw"), "pgbouncer_auth": v("pb")},
+		passwords: map[string]string{"postgres": v("su"), "replicator": v("rep"), "pgha_rewind": v("rw"), "app": v("apppw"), "pgbouncer_auth": v("pb"), "pgha_monitor": ""},
 		databases: []string{"postgres", "app"},
 	}
 	if err := NewReconciler(f).Apply(context.Background(), spec(), creds(), readPW); err != nil {
@@ -148,6 +151,7 @@ func TestReconcileRotatesChangedPassword(t *testing.T) {
 func TestSpecValidate(t *testing.T) {
 	for name, s := range map[string]Spec{
 		"reserved":    {Roles: []RoleSpec{{Name: "replicator", PasswordFile: "x"}}},
+		"monitor":     {Roles: []RoleSpec{{Name: "pgha_monitor", PasswordFile: "x"}}},
 		"pg prefix":   {Roles: []RoleSpec{{Name: "pg_monitor", PasswordFile: "x"}}},
 		"twice":       {Roles: []RoleSpec{{Name: "a", PasswordFile: "x"}, {Name: "a", PasswordFile: "x"}}},
 		"no password": {Roles: []RoleSpec{{Name: "a"}}},

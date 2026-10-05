@@ -1,0 +1,63 @@
+suite: metrics
+set:
+  postgresql.allowedCIDRs: ["10.244.0.0/16"]
+  metrics.exporters.enabled: true
+tests:
+  - it: runs the postgres exporter beside each member, over the socket as pgha_monitor
+    templates: [statefulset.yaml]
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[1].name
+          value: exporter
+      - matchRegex:
+          path: spec.template.spec.containers[1].image
+          pattern: ^docker\.io/prometheuscommunity/postgres-exporter:v0\.20\.1@sha256:[a-f0-9]{64}$
+      - contains:
+          path: spec.template.spec.containers[1].env
+          content: {name: DATA_SOURCE_NAME, value: "host=/var/run/postgresql user=pgha_monitor dbname=postgres sslmode=disable"}
+      - equal:
+          path: spec.template.spec.containers[1].securityContext.readOnlyRootFilesystem
+          value: true
+  - it: maps only the postgres OS user to pgha_monitor on the socket
+    templates: [configmap.yaml]
+    asserts:
+      - matchRegex:
+          path: data["pg_hba.conf"]
+          pattern: '(?m)^local\s+all\s+pgha_monitor\s+peer map=pgha_monitor$'
+      - equal:
+          path: data["pg_ident.conf"]
+          value: |
+            pgha_monitor postgres pgha_monitor
+      - matchRegex:
+          path: data["postgresql.conf"]
+          pattern: "(?m)^ident_file = '/etc/pgha/config/pg_ident.conf'$"
+  - it: runs the pgbouncer exporter beside each pooler
+    templates: [pgbouncer.yaml]
+    documentSelector: {path: kind, value: Deployment}
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[1].name
+          value: exporter
+      - contains:
+          path: spec.template.spec.containers[1].args
+          content: --pgBouncer.connectionString=postgres://pgbouncer_auth@127.0.0.1:6432/pgbouncer?sslmode=require
+  - it: renders no exporters by default
+    set:
+      metrics.exporters.enabled: false
+    templates: [statefulset.yaml]
+    asserts:
+      - lengthEqual:
+          path: spec.template.spec.containers
+          count: 1
+  - it: renders the alert rules when asked
+    set:
+      metrics.prometheusRule.enabled: true
+    templates: [prometheusrule.yaml]
+    asserts:
+      - isKind:
+          of: PrometheusRule
+      - contains:
+          path: spec.groups[0].rules
+          any: true
+          content:
+            alert: PostgresHANoPrimary

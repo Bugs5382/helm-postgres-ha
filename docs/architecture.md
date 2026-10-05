@@ -87,6 +87,16 @@ rewrites it. The primary then creates or updates, idempotently:
 
 Passwords are sent as SCRAM verifiers, never as plain text, and only rewritten when they change.
 
+## Metrics and alerts
+
+Every member's agent exports `pgha_*` metrics on port 8008: role, Lease holder, timeline, WAL
+position and lag, promotions and fencings, archiver counters, last base backup and restore check,
+and data volume use. With `metrics.exporters.enabled`, postgres_exporter (port 9187) and
+pgbouncer_exporter (9127) run beside the members and poolers. postgres_exporter logs in over the
+local socket as `pgha_monitor`, a role with `pg_monitor` and no password, which only the postgres
+OS user can use. `metrics.prometheusRule.enabled` ships the alerts; `tests/rules` holds their
+promtool unit tests.
+
 ## What it does not do
 
 - It is not an operator and adds no CRDs.

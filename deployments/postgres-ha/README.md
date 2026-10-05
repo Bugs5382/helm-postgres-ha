@@ -53,7 +53,18 @@ installs touch:
 | `networkPolicy.extraEgress` | none | Extra egress for the members, such as object storage. |
 | `agent.leaseDuration`, `agent.renewDeadline` | `15s`, `10s` | Failover timing. The deadline must be shorter than the duration minus the retry period. |
 | `agent.maxLagOnFailover` | 1 MiB | How far behind a standby may be and still be promoted. |
+| `metrics.exporters.enabled` | off | postgres_exporter beside each member (local socket, `pgha_monitor` with `pg_monitor`) and pgbouncer_exporter beside each pooler. |
+| `metrics.prometheusRule.enabled` | off | Alerts: no primary, split brain, member not ready, replication lag, fencing, settings pending a restart. |
 | `agent.logLevel` | `error` | `debug` in development clusters, `info` in staging. |
+
+## 📏 Sizing
+
+Set `resources` for the postgres container, which runs PostgreSQL and the agent. Unless you set
+them in `postgresql.parameters`, `shared_buffers` is a quarter and `effective_cache_size` three
+quarters of `resources.limits.memory` (or the request when there is no limit). A memory change
+that moves `shared_buffers` rolls the pods; other settings reload in place. The container has no
+CPU limit by default, so a busy server never throttles the agent's Lease renewals. Size PgBouncer
+with `pgbouncer.resources`, and the tools init container and hook Job with `agent.initResources`.
 
 ## 🔐 What is generated
 

@@ -1,0 +1,65 @@
+{{- if .Values.metrics.prometheusRule.enabled }}
+{{- $name := include "pgha.name" . -}}
+{{- $sel := printf "namespace=%q, service=%q" .Release.Namespace (printf "%s-metrics" $name) -}}
+{{- $r := .Values.metrics.prometheusRule -}}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pgha.labels" . | nindent 4 }}
+    {{- with $r.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: postgres-ha.{{ $name }}
+      rules:
+        - alert: PostgresHANoPrimary
+          expr: sum(pgha_lease_holder{ {{- $sel -}} }) < 1
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "{{ $name }} has no primary"
+            description: "No member of {{ .Release.Namespace }}/{{ $name }} holds the cluster Lease, so the cluster takes no writes. The members' logs say why no failover happens (\"waiting\" lines)."
+        - alert: PostgresHASplitBrain
+          expr: max(pgha_split_brain{ {{- $sel -}} }) > 0 or sum(pgha_role{ {{- $sel -}}, role="primary"}) > 1
+          labels:
+            severity: critical
+          annotations:
+            summary: "{{ $name }} has more than one read-write member"
+            description: "A member of {{ .Release.Namespace }}/{{ $name }} reports another member running read-write. The one without the Lease fences itself; this fires if it does not."
+        - alert: PostgresHAMemberNotReady
+          expr: pgha_ready{ {{- $sel -}} } == 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $name }} member {{ "{{" }} $labels.pod {{ "}}" }} is not ready"
+            description: "The member has not been ready for 10 minutes: not streaming, too far behind, or rebuilding."
+        - alert: PostgresHAReplicationLag
+          expr: max by (member) (pgha_replica_replay_lag_bytes{ {{- $sel -}} }) > {{ int64 $r.replicationLagBytes }}
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $name }} standby {{ "{{" }} $labels.member {{ "}}" }} is lagging"
+            description: "The standby's replay is {{ "{{" }} $value | humanize1024 {{ "}}" }}B behind the primary."
+        - alert: PostgresHAFenced
+          expr: increase(pgha_fencings_total{ {{- $sel -}} }[15m]) > 0
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $name }} member {{ "{{" }} $labels.pod {{ "}}" }} fenced itself"
+            description: "The member stopped PostgreSQL because it ran read-write without the Lease (code 1111). Look for API-server or network trouble on its node."
+        - alert: PostgresHAPendingRestart
+          expr: max by (pod) (pgha_pending_restart_settings{ {{- $sel -}} }) > 0
+          for: 1h
+          labels:
+            severity: info
+          annotations:
+            summary: "{{ $name }} member {{ "{{" }} $labels.pod {{ "}}" }} has settings waiting for a restart"
+            description: "A changed setting only takes effect after a restart, and the pods have not rolled."
+{{- end }}
