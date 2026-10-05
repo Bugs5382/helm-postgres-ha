@@ -85,10 +85,13 @@ jobs:
       - name: 💾 Backup and restore tests
         run: bash test/e2e/backup.sh
 
+      - name: ⬆️ Major-version upgrade test
+        run: bash test/e2e/upgrade.sh
+
       - name: 🧾 Cluster state on failure
         if: failure()
         run: |
-          for ns in db bk rs; do
+          for ns in db bk rs up-old up-new; do
             kubectl -n "$ns" get pods,lease -o wide || true
             for p in $(kubectl -n "$ns" get pods -o name 2>/dev/null); do
               echo "--- $ns $p"; kubectl -n "$ns" logs "$p" --all-containers --tail=200 || true

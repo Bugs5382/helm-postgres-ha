@@ -41,6 +41,7 @@ import (
 
 	"github.com/Bugs5382/helm-postgres-ha/internal/cluster"
 	"github.com/Bugs5382/helm-postgres-ha/internal/config"
+	"github.com/Bugs5382/helm-postgres-ha/internal/errs"
 	"github.com/Bugs5382/helm-postgres-ha/internal/kube"
 	"github.com/Bugs5382/helm-postgres-ha/internal/lease"
 	"github.com/Bugs5382/helm-postgres-ha/internal/metrics"
@@ -831,5 +832,34 @@ func TestShutdownFencesWhenRenewalsFailDuringTheStop(t *testing.T) {
 	}
 	if !immediate {
 		t.Fatalf("not fenced while the stop hung without renewals: stops=%v", h.node.stops)
+	}
+}
+
+// --- major versions ---
+
+type majorNode struct {
+	*fakeNode
+	data, server int
+}
+
+func (m majorNode) DataMajor() (int, error)                  { return m.data, nil }
+func (m majorNode) ServerMajor(context.Context) (int, error) { return m.server, nil }
+
+func TestRefusesADataDirectoryFromAnotherMajor(t *testing.T) {
+	h := newHarness(t, "pg-1", "pg-0", map[string]string{lease.SystemID: "100"})
+	standbyNode(h)
+	h.a.node = majorNode{fakeNode: h.node, data: 17, server: 18}
+	err := h.a.CheckVersion(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "PostgreSQL 17 but the server is 18") || errs.Code(err) != errs.MajorVersion {
+		t.Fatalf("err = %v", err)
+	}
+	h.a.fatal = err
+	h.tick()
+	if h.node.running {
+		t.Fatal("started a data directory from another major")
+	}
+	h.a.node = majorNode{fakeNode: h.node, data: 18, server: 18}
+	if err := h.a.CheckVersion(context.Background()); err != nil {
+		t.Fatalf("same major refused: %v", err)
 	}
 }

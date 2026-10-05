@@ -129,13 +129,26 @@ To bring your own, create a Secret with `tls.crt`, `tls.key` and `ca.crt` and se
 ## Major version upgrade
 
 The chart runs one PostgreSQL major per chart line. A member whose data directory was made by
-another major logs code `1103` and refuses to start. The supported path is a dump and restore
-into a new release:
+another major logs code `1103` and refuses to start, so an in-place image bump never starts the
+wrong server on your data. Move to a new major with a dump and restore into a new release,
+which `test/e2e/upgrade.sh` runs in CI from 17 to 18:
 
-1. Install a new release with the new chart version next to the old one.
-2. Stop writes to the old release.
-3. `pg_dumpall` from the old primary into `psql` on the new primary (both over TLS).
-4. Move clients to the new release, then uninstall the old one.
+1. Install a new release from the new chart version next to the old one, with the same `roles`
+   and `databases` values, so the roles and empty databases exist.
+2. Stop writes to the old release (scale your applications down, or point them at a maintenance
+   page).
+3. Copy each database from the old primary into the new one:
+
+   ```bash
+   OLD=$(kubectl -n old get pods -l postgres-ha/role=primary -o jsonpath='{.items[0].metadata.name}')
+   NEW=$(kubectl -n new get pods -l postgres-ha/role=primary -o jsonpath='{.items[0].metadata.name}')
+   kubectl -n old exec "$OLD" -c postgres -- pg_dump -h /var/run/postgresql -U postgres -d app \
+     | kubectl -n new exec -i "$NEW" -c postgres -- psql -h /var/run/postgresql -U postgres -d app -v ON_ERROR_STOP=1
+   ```
+
+   Use `pg_dump` per database rather than `pg_dumpall`: the new release manages its own roles
+   and passwords, and a full dump would overwrite them.
+4. Move clients to the new release's Services, then uninstall the old release.
 
 ## Connection pooling limits
 
