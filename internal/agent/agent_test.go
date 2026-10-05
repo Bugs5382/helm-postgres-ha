@@ -67,6 +67,8 @@ type fakeNode struct {
 	conf       map[string]string
 	stops      []pg.StopMode
 	starts     int
+	// lastFatal is the FATAL or PANIC message the last postmaster exited with.
+	lastFatal  string
 	reloads    int
 	promoteOK  bool
 	rewindErr  error
@@ -122,7 +124,8 @@ func (f *fakeNode) Start() error {
 	f.inRecovery = f.signals[pg.StandbySignal] || f.signals[pg.RecoverySignal]
 	return nil
 }
-func (f *fakeNode) Running() bool { defer f.lock()(); return f.running }
+func (f *fakeNode) Running() bool     { defer f.lock()(); return f.running }
+func (f *fakeNode) LastFatal() string { defer f.lock()(); return f.lastFatal }
 func (f *fakeNode) Stop(_ context.Context, m pg.StopMode) error {
 	if f.onStop != nil {
 		f.onStop()
@@ -1005,5 +1008,51 @@ func TestStartingServerWithoutStandbySignalStillCountsAsReadWrite(t *testing.T) 
 	h.tick()
 	if s := h.a.Status(); s.InRecovery {
 		t.Fatalf("a server starting without standby.signal may come up read-write and must not read as in recovery: %+v", s)
+	}
+}
+
+// --- a restore whose target cannot be reached ---
+
+// restoringHolder is the member restoring a backup: it holds the Lease and
+// its data carries recovery.signal.
+func restoringHolder(t *testing.T) *harness {
+	t.Helper()
+	h := newHarness(t, "pg-0", "pg-0", map[string]string{lease.SystemID: "100"})
+	h.node.hasData, h.node.signals[pg.RecoverySignal] = true, true
+	return h
+}
+
+func TestRestoreThatCannotReachItsTargetIsNotRestarted(t *testing.T) {
+	h := restoringHolder(t)
+	h.tick() // starts recovery
+	if h.node.starts != 1 {
+		t.Fatalf("restore did not start: starts=%d", h.node.starts)
+	}
+	h.node.running = false
+	h.node.lastFatal = "recovery ended before configured recovery target was reached"
+	for i := 0; i < 5; i++ {
+		h.clock.add(2 * time.Second)
+		h.tick()
+	}
+	if h.node.starts != 1 {
+		t.Fatalf("a restore that cannot reach its target was restarted %d times", h.node.starts-1)
+	}
+	if errs.Code(h.a.fatal) != errs.RestoreTarget || !strings.Contains(h.a.fatal.Error(), "recovery target") {
+		t.Fatalf("fatal = %v", h.a.fatal)
+	}
+	if h.a.Status().Eligible {
+		t.Fatal("the member is still eligible")
+	}
+}
+
+func TestRestoreThatExitsForAnotherReasonIsRestarted(t *testing.T) {
+	h := restoringHolder(t)
+	h.tick()
+	h.node.running = false
+	h.node.lastFatal = "the database system is shutting down"
+	h.clock.add(2 * time.Second)
+	h.tick()
+	if h.node.starts != 2 || h.a.fatal != nil {
+		t.Fatalf("starts=%d fatal=%v", h.node.starts, h.a.fatal)
 	}
 }
