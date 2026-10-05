@@ -52,6 +52,8 @@ server only) and the transport package is `internal/server` plus `internal/peer`
 
 - Build: `go build ./...`; image: `docker build -t pgha:dev .`
 - Test: `go test ./...` (run under `systemd-run --user --scope -p MemoryMax=6G` on shared boxes)
+- Real PostgreSQL: `go test -tags integration ./internal/pg/` starts a primary and a streaming
+  standby from the chart's pinned image in Docker and checks status, promotion and roles.
 - Lint: `task lint` (gofmt, golangci-lint, yamllint)
 - Chart: `bash test/chart/checks.sh` (needs helm, kubeconform, yq and the helm-unittest plugin)
 - End to end: create the kind cluster from `test/e2e/kind.yaml`, install cert-manager, load the
