@@ -81,3 +81,71 @@ tests:
       - eval_time: 2m
         alertname: PostgresHANoPrimary
         exp_alerts: []
+  - name: backup too old
+    interval: 5m
+    input_series:
+      - series: 'pgha_backup_last_success_timestamp_seconds{namespace="db", service="pg-metrics", pod="pg-0"}'
+        values: '0x400'
+    alert_rule_test:
+      - eval_time: 26h
+        alertname: PostgresHABackupTooOld
+        exp_alerts: []
+      - eval_time: 26h20m
+        alertname: PostgresHABackupTooOld
+        exp_alerts:
+          - exp_labels: {severity: critical}
+            exp_annotations:
+              summary: pg has no base backup newer than 26h
+              description: The last successful base backup of db/pg is older than 26 hours. Check the backup Lease's postgres-ha/last-failure and the members' logs (code 1110).
+  - name: recent backup is fine
+    interval: 5m
+    input_series:
+      - series: 'pgha_backup_last_success_timestamp_seconds{namespace="db", service="pg-metrics", pod="pg-0"}'
+        values: '3600x400'
+    alert_rule_test:
+      - eval_time: 1h
+        alertname: PostgresHABackupTooOld
+        exp_alerts: []
+  - name: archiving failing
+    interval: 1m
+    input_series:
+      - series: 'pgha_archive_failed_count{namespace="db", service="pg-metrics", pod="pg-1"}'
+        values: '0 0 1 2 3'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: PostgresHAArchiveFailing
+        exp_alerts:
+          - exp_labels: {severity: critical, namespace: db, service: pg-metrics, pod: pg-1}
+            exp_annotations:
+              summary: pg member pg-1 cannot archive WAL
+              description: archive_command is failing, so WAL piles up in pg_wal and point-in-time recovery has a gap. Check the object storage and its credentials.
+  - name: restore check failed
+    interval: 5m
+    input_series:
+      - series: 'pgha_backup_last_verify_ok{namespace="db", service="pg-metrics", pod="pg-0"}'
+        values: '1 0 0'
+      - series: 'pgha_backup_last_verify_timestamp_seconds{namespace="db", service="pg-metrics", pod="pg-0"}'
+        values: '0 300 300'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: PostgresHARestoreCheckFailing
+        exp_alerts:
+          - exp_labels: {severity: critical}
+            exp_annotations:
+              summary: pg's latest backup did not restore
+              description: The scheduled restore check of db/pg failed. Run it by hand (see the runbook) and read its log.
+  - name: disk filling on a standby
+    interval: 1m
+    input_series:
+      - series: 'pgha_data_volume_size_bytes{namespace="db", service="pg-metrics", pod="pg-2"}'
+        values: '100x20'
+      - series: 'pgha_data_volume_available_bytes{namespace="db", service="pg-metrics", pod="pg-2"}'
+        values: '10x20'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: PostgresHADiskFilling
+        exp_alerts:
+          - exp_labels: {severity: warning, namespace: db, service: pg-metrics, pod: pg-2}
+            exp_annotations:
+              summary: pg member pg-2's data volume is 90% full
+              description: Over 85% of the data volume is used. Slots holding WAL for a lagging standby, failing archiving or growth are the usual causes.
