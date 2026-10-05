@@ -245,6 +245,21 @@ func (l *Local) FetchBackup(ctx context.Context, prefix, name string) error {
 	return l.install(dir)
 }
 
+// PrepareBackupPath creates the file backend's directory.
+func (l *Local) PrepareBackupPath(path string) error {
+	return os.MkdirAll(path, 0o700)
+}
+
+// BackupVolume reports the size and free space of the volume holding path.
+func (l *Local) BackupVolume(path string) (uint64, uint64, error) {
+	var st syscall.Statfs_t
+	if err := syscall.Statfs(path, &st); err != nil {
+		return 0, 0, err
+	}
+	bs := uint64(st.Bsize) // #nosec G115 -- block size is positive
+	return st.Blocks * bs, st.Bavail * bs, nil
+}
+
 // Rewind runs pg_rewind against a primary.
 func (l *Local) Rewind(ctx context.Context, conninfo string) (bool, error) {
 	return l.tools.Rewind(ctx, l.cfg.DataDir, conninfo, l.cfg.ConfigFile)

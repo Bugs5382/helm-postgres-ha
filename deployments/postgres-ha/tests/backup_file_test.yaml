@@ -1,0 +1,84 @@
+suite: backup to a local file backend
+templates: [statefulset.yaml, backup-verify.yaml, backup-pvc.yaml, configmap.yaml]
+set:
+  postgresql.allowedCIDRs: ["10.244.0.0/16"]
+  backup.enabled: true
+  backup.storage: file
+tests:
+  - it: points WAL-G at the mounted path, not S3
+    template: statefulset.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: WALG_FILE_PREFIX, value: /backup/RELEASE-NAME}
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: {name: WALG_S3_PREFIX, value: ""}
+          any: true
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: PGHA_BACKUP_PATH, value: /backup/RELEASE-NAME}
+  - it: mounts the backup volume on the members from the chart's claim
+    template: statefulset.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content: {name: backup, mountPath: /backup}
+      - contains:
+          path: spec.template.spec.volumes
+          content: {name: backup, persistentVolumeClaim: {claimName: RELEASE-NAME-backup}}
+  - it: uses an existing claim and a custom prefix when set
+    template: statefulset.yaml
+    set:
+      backup.file.existingClaim: shared-backups
+      backup.file.prefix: site-a
+      backup.file.mountPath: /mnt/walg
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content: {name: backup, persistentVolumeClaim: {claimName: shared-backups}}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: WALG_FILE_PREFIX, value: /mnt/walg/site-a}
+  - it: creates a kept claim with the configured size, class and access modes
+    template: backup-pvc.yaml
+    set:
+      backup.file.persistence.size: 50Gi
+      backup.file.persistence.storageClassName: fast
+    asserts:
+      - isKind: {of: PersistentVolumeClaim}
+      - equal: {path: metadata.name, value: RELEASE-NAME-backup}
+      - equal:
+          path: metadata.annotations["helm.sh/resource-policy"]
+          value: keep
+      - equal: {path: spec.resources.requests.storage, value: 50Gi}
+      - equal: {path: spec.storageClassName, value: fast}
+      - equal: {path: spec.accessModes, value: [ReadWriteMany]}
+  - it: creates no claim for an existing one, or for S3
+    template: backup-pvc.yaml
+    set:
+      backup.file.existingClaim: shared-backups
+    asserts:
+      - hasDocuments: {count: 0}
+  - it: creates no claim with the S3 backend
+    template: backup-pvc.yaml
+    set:
+      backup.storage: s3
+      backup.s3.prefix: s3://b/p
+      backup.s3.existingSecret: s3
+    asserts:
+      - hasDocuments: {count: 0}
+  - it: mounts the backup volume read-only on the restore check
+    template: backup-verify.yaml
+    documentSelector: {path: kind, value: CronJob}
+    asserts:
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].volumeMounts
+          content: {name: backup, mountPath: /backup, readOnly: true}
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content: {name: WALG_FILE_PREFIX, value: /backup/RELEASE-NAME}
+  - it: needs no S3 settings with the file backend
+    template: configmap.yaml
+    asserts:
+      - notFailedTemplate: {}

@@ -8,7 +8,7 @@ CHART=$ROOT/deployments/postgres-ha
 KUBE_VERSION=${KUBE_VERSION:-1.34.0}
 CRDS='https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
 
-for v in default full; do
+for v in default full file; do
   echo "== helm lint ($v)"
   helm lint --strict "$CHART" -f "$CHART/ci/$v-values.yaml"
   echo "== kubeconform ($v)"
@@ -35,9 +35,13 @@ ann_sum=$(printf '%s' "$render" | yq -r 'select(.kind == "Deployment") | .spec.t
 [ "$ini_sum" = "$ann_sum" ] || { echo "checksum/config ($ann_sum) is not the hash of pgbouncer.ini ($ini_sum)"; exit 1; }
 echo "== alert rules: promtool check and unit tests"
 RULES_DIR=$(mktemp -d)
-helm template pg "$CHART" -n db -f "$CHART/ci/default-values.yaml" --set metrics.prometheusRule.enabled=true \
-  --set backup.enabled=true --set backup.s3.prefix=s3://b/p --set backup.s3.existingSecret=s3 -s templates/prometheusrule.yaml \
-  | yq '.spec' > "$RULES_DIR/rules.yaml"
+rules() { helm template pg "$CHART" -n db -f "$CHART/ci/default-values.yaml" --set metrics.prometheusRule.enabled=true \
+  --set backup.enabled=true "$@" -s templates/prometheusrule.yaml | yq '.spec'; }
+rules --set backup.s3.prefix=s3://b/p --set backup.s3.existingSecret=s3 > "$RULES_DIR/s3.yaml"
+promtool check rules "$RULES_DIR/s3.yaml"
+# The file backend renders every backup rule plus the backup volume's, so the
+# unit tests run against it.
+rules --set backup.storage=file > "$RULES_DIR/rules.yaml"
 cp "$CHART/tests/rules/rules.test.yaml" "$RULES_DIR/"
 promtool check rules "$RULES_DIR/rules.yaml"
 promtool test rules "$RULES_DIR/rules.test.yaml"

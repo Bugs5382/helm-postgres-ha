@@ -58,19 +58,21 @@ type Set struct {
 	LastTick        prometheus.Gauge
 	CodedErrors     *prometheus.CounterVec
 
-	ArchiveFailed       prometheus.Gauge
-	ArchiveArchived     prometheus.Gauge
-	ArchiveLastSuccess  prometheus.Gauge
-	ArchiveLastFailure  prometheus.Gauge
-	BackupLastSuccess   prometheus.Gauge
-	BackupFailures      prometheus.Counter
-	BackupDuration      prometheus.Gauge
-	BackupLastVerify    prometheus.Gauge
-	BackupVerifyOK      prometheus.Gauge
-	DataVolumeSize      prometheus.Gauge
-	DataVolumeAvailable prometheus.Gauge
-	WALDirBytes         prometheus.Gauge
-	ReplicaLagBytes     *prometheus.GaugeVec
+	ArchiveFailed         prometheus.Gauge
+	ArchiveArchived       prometheus.Gauge
+	ArchiveLastSuccess    prometheus.Gauge
+	ArchiveLastFailure    prometheus.Gauge
+	BackupLastSuccess     prometheus.Gauge
+	BackupFailures        prometheus.Counter
+	BackupDuration        prometheus.Gauge
+	BackupLastVerify      prometheus.Gauge
+	BackupVerifyOK        prometheus.Gauge
+	DataVolumeSize        prometheus.Gauge
+	DataVolumeAvailable   prometheus.Gauge
+	BackupVolumeSize      prometheus.Gauge
+	BackupVolumeAvailable prometheus.Gauge
+	WALDirBytes           prometheus.Gauge
+	ReplicaLagBytes       *prometheus.GaugeVec
 }
 
 // New registers the metrics.
@@ -124,6 +126,8 @@ func New() *Set {
 	s.BackupVerifyOK = g("backup_last_verify_ok", "1 when the last scheduled restore check restored the latest backup and answered its query.")
 	s.DataVolumeSize = g("data_volume_size_bytes", "Size of the data volume.")
 	s.DataVolumeAvailable = g("data_volume_available_bytes", "Free space on the data volume.")
+	s.BackupVolumeSize = g("backup_volume_size_bytes", "Size of the backup volume (file backend).")
+	s.BackupVolumeAvailable = g("backup_volume_available_bytes", "Free space on the backup volume (file backend).")
 	s.WALDirBytes = g("wal_dir_bytes", "Size of pg_wal.")
 	s.ReplicaLagBytes = prometheus.NewGaugeVec(prometheus.GaugeOpts{Namespace: ns, Name: "replica_replay_lag_bytes", Help: "Replay lag of each attached standby, seen from the primary."}, []string{"member", "sync_state"})
 	f(s.ReplicaLagBytes)

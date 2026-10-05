@@ -201,7 +201,8 @@ bootstrap:
     targetExclusive: false
 
 backup:
-  # -- Turn on WAL archiving and scheduled base backups with WAL-G. Needs backup.s3.
+  # -- Turn on WAL archiving and scheduled base backups with WAL-G, to
+  # backup.s3 or backup.file (see backup.storage).
   enabled: false
   # -- Cron schedule (UTC).
   schedule: "0 3 * * *"
@@ -213,6 +214,9 @@ backup:
   retainDays: 14
   # -- How long one base backup may run before it is stopped.
   timeout: 6h
+  # -- Where WAL-G stores base backups and WAL: s3 (backup.s3) or file (a
+  # mounted volume, backup.file).
+  storage: s3
   s3:
     # -- WAL-G prefix, for example s3://bucket/cluster.
     prefix: ""
@@ -224,6 +228,27 @@ backup:
     forcePathStyle: false
     # -- Secret with AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY.
     existingSecret: ""
+  # A volume mounted on every member and on the restore check, for
+  # backup.storage file. Every member archives to it and backs up into it, so
+  # with more than one member it must be shared: ReadWriteMany, or a
+  # single-node cluster.
+  file:
+    # -- Where the backup volume is mounted.
+    mountPath: /backup
+    # -- Directory on the volume WAL-G writes to. Empty uses the cluster name,
+    # so several releases can share one volume.
+    prefix: ""
+    # -- An existing PersistentVolumeClaim to use instead of the chart's.
+    existingClaim: ""
+    # The claim the chart creates when existingClaim is empty. It is kept when
+    # the release is uninstalled, like the backups on it.
+    persistence:
+      # -- Size of the backup volume.
+      size: 20Gi
+      # -- Empty uses the cluster default.
+      storageClassName: ""
+      # -- Access modes for the backup volume.
+      accessModes: [ReadWriteMany]
   # -- Extra WAL-G environment (WALG_*), for example compression settings.
   env: {}
   # A scheduled restore check: restore the latest base backup into a

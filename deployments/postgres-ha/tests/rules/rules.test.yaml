@@ -149,3 +149,18 @@ tests:
             exp_annotations:
               summary: pg member pg-2's data volume is 90% full
               description: Over 85% of the data volume is used. Slots holding WAL for a lagging standby, failing archiving or growth are the usual causes.
+  - name: backup volume filling (file backend)
+    interval: 1m
+    input_series:
+      - series: 'pgha_backup_volume_size_bytes{namespace="db", service="pg-metrics", pod="pg-0"}'
+        values: '100x20'
+      - series: 'pgha_backup_volume_available_bytes{namespace="db", service="pg-metrics", pod="pg-0"}'
+        values: '5x20'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: PostgresHABackupVolumeFilling
+        exp_alerts:
+          - exp_labels: {severity: warning, namespace: db, service: pg-metrics, pod: pg-0}
+            exp_annotations:
+              summary: pg member pg-0's backup volume is 95% full
+              description: Over 85% of the backup volume is used. Retention (backup.retainFull, backup.retainDays) or the volume size needs changing before archiving starts to fail.
