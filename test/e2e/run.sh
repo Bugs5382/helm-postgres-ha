@@ -16,6 +16,12 @@ P=$(primary); [ "$P" = "$(holder)" ] || fail "labelled primary $P is not the lea
 sync=$(sql "$P" "select string_agg(sync_state, ',' order by application_name) from pg_stat_replication")
 [ "$sync" = "quorum,quorum" ] || fail "standbys are not quorum synchronous: $sync"
 
+log "replica service: both standbys, never the primary"
+PIP=$($K get pod "$(primary)" -o jsonpath='{.status.podIP}')
+two_replicas() { [ "$(replica_endpoints | wc -w)" = "2" ]; }
+wait_for 60 two_replicas || fail "the replica service does not have both standbys: $(replica_endpoints)"
+case " $(replica_endpoints) " in *" $PIP "*) fail "the replica service routes to the primary" ;; esac
+
 log "roles and databases: the app role writes through PgBouncer over TLS"
 wait_for 60 app "drop table if exists e2e; create table e2e (id bigserial primary key, v text not null)" || fail "app cannot connect through pgbouncer"
 app_write before-failover || fail "write through pgbouncer failed"
@@ -128,10 +134,14 @@ sleep 45
 [ "$($K get lease "$R" -o jsonpath='{.spec.leaseTransitions}')" = "$TRANSITIONS" ] || fail "the lease changed hands"
 [ "$(primary)" = "$P" ] || fail "another member was labelled primary"
 in_recovery "$S" || fail "$S left recovery"
+case " $(replica_endpoints) " in *" $SIP "*) fail "the replica service still routes to $S, which is not streaming" ;; esac
+case " $(replica_endpoints) " in *" $PIP "*) fail "the replica service routes to the primary" ;; esac
 app_write during-asymmetric-partition || fail "writes failed while only $S was cut off"
 cut_pair -D
 trap - EXIT
 wait_for 120 all_streaming || fail "$S did not stream again after the path healed"
+back_in_service() { case " $(replica_endpoints) " in *" $SIP "*) return 0 ;; esac; return 1; }
+wait_for 60 back_in_service || fail "$S did not return to the replica service"
 wait_for 30 has_row "$S" during-asymmetric-partition || fail "$S is missing writes from the partition"
 
 log "config rollout: a values change reaches the running cluster without a restart"

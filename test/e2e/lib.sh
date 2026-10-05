@@ -60,6 +60,12 @@ all_streaming() {
   [ -n "$p" ] && [ "$(streaming_count "$p")" = "2" ]
 }
 
+# replica_endpoints prints the ready addresses behind the replica Service.
+replica_endpoints() {
+  $K get endpointslices -l "kubernetes.io/service-name=$R-replica" \
+    -o jsonpath='{range .items[*].endpoints[?(@.conditions.ready==true)]}{.addresses[0]}{" "}{end}'
+}
+
 in_recovery() { [ "$(sql "$1" 'select pg_is_in_recovery()')" = "t" ]; }
 
 # read_write succeeds only when the member answers and is not in recovery;
