@@ -1,0 +1,154 @@
+name: Release
+# Publishes a release, and runs only when the maintainer publishes a GitHub
+# Release by hand. Nothing here runs on a push or a merge. It publishes:
+#   - the agent image, ghcr.io/bugs5382/helm-postgres-ha/pgha:X.Y.Z;
+#   - the chart, with that image's digest pinned in its values, attached to
+#     the release;
+#   - the Helm repository on GitHub Pages (index.yaml on gh-pages);
+#   - the chart as an OCI artifact, ghcr.io/bugs5382/charts/postgres-ha.
+# The first published release creates the gh-pages branch and turns Pages on.
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  HELM_VERSION: v4.2.0
+  HELM_SHA256: 97dbeb971be4ac4b27e3839976d9564c0fb35c6f3b1da89dd1e292d236af4096
+  CR_VERSION: 1.8.1
+  CR_SHA256: 834046b27b00cd6ba451326875c1937d4f2b671063c2053e031434ade73002b5
+  IMAGE: ghcr.io/bugs5382/helm-postgres-ha/pgha
+  CHART_OCI: oci://ghcr.io/bugs5382/charts
+
+jobs:
+  release:
+    name: 🚀 Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - name: Create GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ secrets.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: Checkout the release tag
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          token: ${{ steps.app-token.outputs.token }}
+          fetch-depth: 0
+
+      - name: 🔢 Release version
+        id: version
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          [[ $TAG =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "::error::release tag $TAG is not vX.Y.Z"; exit 1; }
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: 🔧 Install helm and chart-releaser
+        run: |
+          set -euo pipefail
+          bin="$RUNNER_TEMP/bin"; mkdir -p "$bin"; cd "$RUNNER_TEMP"
+          curl -fsSLo helm.tgz "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz"
+          echo "${HELM_SHA256}  helm.tgz" | sha256sum -c -
+          tar -xzf helm.tgz --strip-components=1 -C "$bin" linux-amd64/helm
+          curl -fsSLo cr.tgz "https://github.com/helm/chart-releaser/releases/download/v${CR_VERSION}/chart-releaser_${CR_VERSION}_linux_amd64.tar.gz"
+          echo "${CR_SHA256}  cr.tgz" | sha256sum -c -
+          tar -xzf cr.tgz -C "$bin" cr
+          echo "$bin" >> "$GITHUB_PATH"
+
+      - name: 🔑 Sign in to ghcr.io
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          printf '%s' "$GH_TOKEN" | helm registry login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+      - name: 🐳 Build and push the agent image
+        id: image
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          docker buildx build --push --build-arg "VERSION=${VERSION}" \
+            --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
+            --label "org.opencontainers.image.version=${VERSION}" \
+            -t "${IMAGE}:${VERSION}" .
+          digest=$(docker buildx imagetools inspect "${IMAGE}:${VERSION}" --format '{{json .Manifest}}' | jq -r .digest)
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+          echo "Pushed ${IMAGE}:${VERSION}@${digest}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 📌 Pin the release into the chart
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          set -euo pipefail
+          bash scripts/release/pin-chart.sh "$VERSION" "$DIGEST"
+          helm lint --strict deployments/postgres-ha -f deployments/postgres-ha/ci/default-values.yaml
+          helm template pg deployments/postgres-ha -f deployments/postgres-ha/ci/default-values.yaml \
+            | grep -q "image: ${IMAGE}:${VERSION}@${DIGEST}"
+          mkdir -p .cr-release-packages
+          helm package deployments/postgres-ha -d .cr-release-packages
+
+      - name: 📦 Attach the chart to the release
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$TAG" .cr-release-packages/*.tgz
+
+      - name: 🗃️ Push the chart to ghcr.io (OCI)
+        run: |
+          set -euo pipefail
+          for chart in .cr-release-packages/*.tgz; do
+            helm push "$chart" "$CHART_OCI"
+          done
+
+      - name: 🌐 Update the Helm repository on GitHub Pages
+        env:
+          CR_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          git config --global user.email "${GITHUB_ACTOR_ID}+${GITHUB_ACTOR}@users.noreply.github.com"
+          git config --global user.name "${GITHUB_ACTOR}"
+          if ! git ls-remote --exit-code --heads origin gh-pages >/dev/null; then
+            git worktree add --orphan -b gh-pages "$RUNNER_TEMP/gh-pages"
+            git -C "$RUNNER_TEMP/gh-pages" commit --allow-empty -m "chore(pages): start the Helm repository"
+            git -C "$RUNNER_TEMP/gh-pages" push origin gh-pages
+            git worktree remove "$RUNNER_TEMP/gh-pages"
+          fi
+          cr index --owner "${GITHUB_REPOSITORY_OWNER}" --git-repo "${GITHUB_REPOSITORY#*/}" \
+            --index-path ./index.yaml --package-path .cr-release-packages \
+            --config ./.github/config/cr.yaml --push
+
+      - name: 🟢 Turn on GitHub Pages for the Helm repository
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          if gh api "repos/${GITHUB_REPOSITORY}/pages" >/dev/null 2>&1; then
+            echo "GitHub Pages is already on."
+          elif gh api -X POST "repos/${GITHUB_REPOSITORY}/pages" -f build_type=legacy \
+              -f 'source[branch]=gh-pages' -f 'source[path]=/' >/dev/null; then
+            echo "Turned on GitHub Pages from gh-pages." >> "$GITHUB_STEP_SUMMARY"
+          else
+            # The image and both charts are already published; only the
+            # Pages switch is left, and it needs a repository admin.
+            msg="Could not turn on GitHub Pages. Set Settings > Pages > Source to the gh-pages branch, root folder."
+            echo "::warning::${msg}"
+            echo "${msg}" >> "$GITHUB_STEP_SUMMARY"
+          fi

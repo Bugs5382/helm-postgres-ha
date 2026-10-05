@@ -27,8 +27,19 @@ cannot renew it stops itself before anyone else may take over.
 Requirements: Kubernetes 1.29 or later, [cert-manager](https://cert-manager.io) (or your own TLS
 Secret), and a StorageClass.
 
+From the Helm repository on GitHub Pages:
+
 ```bash
-helm install pg ./deployments/postgres-ha \
+helm repo add postgres-ha https://bugs5382.github.io/helm-postgres-ha
+helm install pg postgres-ha/postgres-ha \
+  --namespace db --create-namespace \
+  --set 'postgresql.allowedCIDRs={10.244.0.0/16}'
+```
+
+Or straight from the OCI registry:
+
+```bash
+helm install pg oci://ghcr.io/bugs5382/charts/postgres-ha --version <version> \
   --namespace db --create-namespace \
   --set 'postgresql.allowedCIDRs={10.244.0.0/16}'
 ```
@@ -37,8 +48,10 @@ helm install pg ./deployments/postgres-ha \
 PgBouncer (`pg-pgbouncer`), or straight to `pg-primary` (read-write) or `pg-replica` (read-only),
 with `sslmode=verify-full` and the CA from the `pg-tls` Secret.
 
-The agent image is built from this repository's `Dockerfile` (`pgha` plus a static `wal-g`).
-Until a release publishes it, build and push it yourself and set `agent.image`.
+Each release publishes the agent image (`ghcr.io/bugs5382/helm-postgres-ha/pgha`, built from this
+repository's `Dockerfile`: `pgha` plus a static `wal-g`) and pins its digest in the published
+chart. Installing from a checkout (`./deployments/postgres-ha`) needs an agent image you build and
+push yourself, set with `agent.image`.
 
 ## 📚 Docs
 

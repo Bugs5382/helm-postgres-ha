@@ -68,6 +68,29 @@ server only) and the transport package is `internal/server` plus `internal/peer`
   that no longer works fails CI. CI does exactly this in `.github/workflows/checks.yaml`.
 - License headers: `task license` (golic, Go sources).
 
+## Releasing
+
+Nothing publishes on a merge. When the maintainer publishes a GitHub Release `vX.Y.Z`,
+`.github/workflows/job-release.yaml`:
+
+1. builds and pushes the agent image `ghcr.io/bugs5382/helm-postgres-ha/pgha:X.Y.Z`;
+2. runs `scripts/release/pin-chart.sh X.Y.Z <digest>`, which sets the chart version and pins the
+   image digest in the packaged chart's values (`test/release/pin_test.sh` covers it);
+3. attaches the chart to the release and pushes it to `oci://ghcr.io/bugs5382/charts`;
+4. adds it to the Helm repository on GitHub Pages (`index.yaml` on `gh-pages`, through
+   chart-releaser). The first release creates `gh-pages` and turns Pages on.
+
+`main` keeps `agent.image.digest` empty; the release tag is the one source of the version.
+
+Before the first release, once:
+
+- add the release App's client ID and private key as the `APP_CLIENT_ID` and `APP_PRIVATE_KEY`
+  repository secrets, with the App installed on this repository;
+- if the release run warns that it could not turn on Pages, set Settings > Pages > Source to the
+  `gh-pages` branch (root folder);
+- after it runs, make the `helm-postgres-ha/pgha` and `charts/postgres-ha` packages public in the
+  package settings, and link `charts/postgres-ha` to this repository.
+
 ## Logging
 
 Follow the logging rules in `CLAUDE.md`. In short:

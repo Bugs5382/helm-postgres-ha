@@ -12,14 +12,22 @@ its own. See [How failover works](../../docs/architecture.md) for the design and
 - [cert-manager](https://cert-manager.io), or your own TLS Secret (`tls.existingSecret`).
 - A StorageClass, and one node per member for the default hard anti-affinity
   (`affinity.podAntiAffinity: soft` for small clusters).
-- The agent image built from this repository's `Dockerfile` (`agent.image`).
+- The agent image (`agent.image`). A published chart pins the image released with it; from a
+  checkout, build it from this repository's `Dockerfile` and push it yourself.
 
 ## 🚀 Install
 
 ```bash
-helm install pg ./deployments/postgres-ha -n db --create-namespace \
+helm repo add postgres-ha https://bugs5382.github.io/helm-postgres-ha
+helm install pg postgres-ha/postgres-ha -n db --create-namespace \
+  --set 'postgresql.allowedCIDRs={10.244.0.0/16}'
+
+# or from the OCI registry
+helm install pg oci://ghcr.io/bugs5382/charts/postgres-ha --version <version> -n db --create-namespace \
   --set 'postgresql.allowedCIDRs={10.244.0.0/16}'
 ```
+
+A published chart runs the agent image released with it, pinned by digest.
 
 | Endpoint | Use |
 | --- | --- |
