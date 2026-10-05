@@ -66,6 +66,16 @@ server only) and the transport package is `internal/server` plus `internal/peer`
   `test/e2e/run.sh`, `test/e2e/backup.sh` and `test/e2e/runbooks.sh`. The last one runs every
   `bash` block in `docs/runbooks.md` against the backup suite's release, so a runbook command
   that no longer works fails CI. CI does exactly this in `.github/workflows/checks.yaml`.
+- CI (`.github/workflows/checks.yaml`) has two required jobs:
+  - `🧪 Checks` runs on every PR in a few minutes: the chart checks above, the release pin test
+    and the e2e scope test.
+  - `🧪 E2E` runs the image build, the real-PostgreSQL tests and every kind suite. On a PR it
+    runs only when `scripts/ci/e2e-scope.sh` says so: the `e2e` label, or changes under `cmd/`,
+    `internal/`, `deployments/`, `test/e2e/`, the `Dockerfile`, `go.mod`/`go.sum` or the
+    workflow itself. Otherwise it is skipped, which counts as passing.
+  - It always runs on pushes to `main`, nightly, on a published release and on manual dispatch.
+  - Add the `e2e` label to force the suites on any PR. Superseded runs are cancelled, and the Go
+    module cache and the kind node image are cached between runs.
 - License headers: `task license` (golic, Go sources).
 
 ## Releasing
