@@ -48,6 +48,7 @@ installs touch:
 | `backup.verify.*` | on with backups | A daily restore check into a throwaway server, recorded on the backup Lease. |
 | `bootstrap.mode`, `bootstrap.restore.*` | `initdb` | Restore a new release from a backup, optionally to a point in time. |
 | `pgbouncer.*` | on, 2 replicas | Pool mode, pool size, client limit. After a promotion the new primary drops every pooler's connections, so clients move over in seconds. |
+| `pgbouncer.sessionDatabases` | none | Databases pooled in session mode, for clients that need session state. |
 | `networkPolicy.allowedClients` | none | Pods and namespaces allowed to reach PostgreSQL and PgBouncer. |
 | `networkPolicy.extraEgress` | none | Extra egress for the members, such as object storage. |
 | `agent.leaseDuration`, `agent.renewDeadline` | `15s`, `10s` | Failover timing. The deadline must be shorter than the duration minus the retry period. |

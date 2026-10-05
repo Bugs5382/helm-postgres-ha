@@ -96,10 +96,16 @@ spec:
           ports:
             - name: pgbouncer
               containerPort: 6432
+          # Ready only when the pooler answers a query on its admin console,
+          # not merely when the port is open.
           readinessProbe:
-            tcpSocket:
-              port: pgbouncer
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - PGPASSWORD="$(cat /etc/pgbouncer/auth/password)" psql "host=127.0.0.1 port=6432 dbname=pgbouncer user=pgbouncer_auth sslmode=require connect_timeout=2" -XAtqc 'SHOW VERSION' >/dev/null
             periodSeconds: 5
+            timeoutSeconds: 4
           livenessProbe:
             tcpSocket:
               port: pgbouncer
@@ -115,6 +121,9 @@ spec:
           volumeMounts:
             - name: config
               mountPath: /etc/pgbouncer/config
+              readOnly: true
+            - name: auth
+              mountPath: /etc/pgbouncer/auth
               readOnly: true
             - name: tls
               mountPath: /etc/pgbouncer/tls

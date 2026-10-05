@@ -582,6 +582,25 @@
         },
         "resources": {
           "type": "object"
+        },
+        "maxDbConnections": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "reservePoolSize": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "serverIdleTimeout": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sessionDatabases": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z_][a-z0-9_]{0,62}$"
+          }
         }
       }
     },
