@@ -30,6 +30,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	golog "github.com/Bugs5382/go-log"
@@ -468,9 +469,15 @@ func (a *Agent) handover(ctx context.Context, rec lease.Record, target string, f
 	sctx, cancel := context.WithTimeout(ctx, a.cfg.ShutdownTimeout)
 	defer cancel()
 	_ = a.node.SetSignal(RejoinMarker, true)
+	// A clean stop can outlast the lease (a busy checkpoint, slow standbys),
+	// and at shutdown the control loop and its watchdog have already ended.
+	// Keep renewing until the server is down, and fence if renewals fail,
+	// so the Lease never lapses under a server that still takes writes.
+	stopHold := a.holdWhileStopping(ctx, rec)
 	if err := a.node.Stop(sctx, pg.StopFast); err != nil {
 		a.log.Error(err, "stop during handover failed")
 	}
+	stopHold()
 	a.holdingRW.Store(false)
 	a.node.CloseConns()
 	a.primarySince = time.Time{}
@@ -486,6 +493,31 @@ func (a *Agent) handover(ctx context.Context, rec lease.Record, target string, f
 	}
 	a.setRole(ctx, kube.RoleNone)
 	a.log.Info("lease released", golog.F("successor", succ))
+}
+
+// holdWhileStopping renews the Lease every retry period and applies the
+// watchdog's fencing rule until the returned function is called.
+func (a *Agent) holdWhileStopping(ctx context.Context, rec lease.Record) func() {
+	done := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		t := time.NewTicker(a.cfg.RetryPeriod)
+		defer t.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-t.C:
+				if nr, err := a.renew(ctx, rec, local{}); err == nil {
+					rec = nr
+				}
+				a.checkFence()
+			}
+		}
+	}()
+	return func() { close(done); wg.Wait() }
 }
 
 // Shutdown stops the member for a pod termination: a primary hands over, a

@@ -57,7 +57,9 @@ cannot repoint clients.
    backup). Every other empty member clones from the holder. A data directory whose system
    identifier differs from the Lease's is refused.
 10. **Shutdown and switchover.** A terminating primary stops PostgreSQL cleanly, which sends all WAL
-    to the attached standbys, then releases the Lease naming its successor. A switchover request
+    to the attached standbys, then releases the Lease naming its successor. It keeps renewing the
+    Lease, and keeps the watchdog's fencing rule, until the server is down, so a slow shutdown never
+    lets the Lease lapse under a server that still takes writes. A switchover request
     (`pgha switchover`) does the same without the pod stopping.
 
 ## Synchronous replication
