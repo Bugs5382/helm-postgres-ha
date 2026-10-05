@@ -95,6 +95,16 @@ func pair(t *testing.T) (primary, standby *DB, standbyName string) {
 	t.Cleanup(p.Close)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
+	// The image's entrypoint first runs a socket-only server for its init
+	// step and then restarts with TCP; wait for the TCP listener, which is
+	// what the standby clones from.
+	deadline := time.Now().Add(60 * time.Second)
+	for exec.Command("docker", "exec", id+"-p", "pg_isready", "-h", "127.0.0.1", "-q").Run() != nil {
+		if time.Now().After(deadline) {
+			t.Fatalf("primary never accepted TCP connections:\n%s", docker(t, "logs", id+"-p"))
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
 	if err := p.WaitReady(ctx, time.Second); err != nil {
 		t.Fatalf("primary not ready: %v", err)
 	}
@@ -102,7 +112,7 @@ func pair(t *testing.T) (primary, standby *DB, standbyName string) {
 		t.Fatal(err)
 	}
 	standbyName = id + "-s"
-	clone := fmt.Sprintf("rm -rf \"$PGDATA\" && pg_basebackup -h %s-p -U postgres -D \"$PGDATA\" -X stream -R -S s1 -c fast && exec docker-entrypoint.sh postgres -c hot_standby=on", id)
+	clone := fmt.Sprintf("for i in $(seq 1 30); do rm -rf \"$PGDATA\"; pg_basebackup -h %s-p -U postgres -D \"$PGDATA\" -X stream -R -S s1 -c fast && exec docker-entrypoint.sh postgres -c hot_standby=on; sleep 1; done; exit 1", id)
 	args := []string{"run", "-d", "--name", standbyName, "--network", id, "-e", "POSTGRES_PASSWORD=pw",
 		"-v", ssock + ":/var/run/postgresql", "--user", "postgres", "--entrypoint", "bash", image, "-c", clone}
 	docker(t, args...)
