@@ -55,7 +55,8 @@ server only) and the transport package is `internal/server` plus `internal/peer`
 - Real PostgreSQL: `go test -tags integration ./internal/pg/` starts a primary and a streaming
   standby from the chart's pinned image in Docker and checks status, promotion and roles.
 - Lint: `task lint` (gofmt, golangci-lint, yamllint)
-- Chart: `bash test/chart/checks.sh` (needs helm, kubeconform, yq and the helm-unittest plugin)
+- Chart: `bash test/chart/checks.sh` (needs helm, kubeconform, yq, promtool and the helm-unittest
+  plugin); alert rule unit tests live in `deployments/postgres-ha/tests/rules`
 - End to end: create the kind cluster from `test/e2e/kind.yaml`, install cert-manager, load the
   image tagged `ghcr.io/bugs5382/helm-postgres-ha/pgha:e2e`, then `test/e2e/install.sh`,
   `test/e2e/run.sh` and `test/e2e/backup.sh`. CI does exactly this in `.github/workflows/checks.yaml`.

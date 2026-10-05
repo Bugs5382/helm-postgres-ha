@@ -253,6 +253,27 @@ spec:
               mountPath: /var/run/postgresql
             - name: tmp
               mountPath: /tmp
+        {{- if .Values.metrics.exporters.enabled }}
+        - name: exporter
+          image: {{ include "pgha.postgresExporterImage" . }}
+          imagePullPolicy: {{ .Values.metrics.exporters.postgres.image.pullPolicy }}
+          env:
+            - name: DATA_SOURCE_NAME
+              value: "host=/var/run/postgresql user=pgha_monitor dbname=postgres sslmode=disable"
+          ports:
+            - name: exporter
+              containerPort: 9187
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            {{- toYaml .Values.metrics.exporters.postgres.resources | nindent 12 }}
+          volumeMounts:
+            - name: socket
+              mountPath: /var/run/postgresql
+        {{- end }}
       volumes:
         - name: tools
           emptyDir:

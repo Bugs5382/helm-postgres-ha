@@ -40,6 +40,7 @@ spec:
         {{- toYaml . | nindent 8 }}
       ports:
         - port: 8008
+        - port: 9187
     {{- end }}
   egress:
     - to:
@@ -103,6 +104,12 @@ spec:
         {{- toYaml . | nindent 8 }}
       ports:
         - port: 6432
+    {{- end }}
+    {{- with $np.metricsFrom }}
+    - from:
+        {{- toYaml . | nindent 8 }}
+      ports:
+        - port: 9127
     {{- end }}
   egress:
     - to:

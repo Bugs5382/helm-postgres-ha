@@ -53,6 +53,8 @@ installs touch:
 | `networkPolicy.extraEgress` | none | Extra egress for the members, such as object storage. |
 | `agent.leaseDuration`, `agent.renewDeadline` | `15s`, `10s` | Failover timing. The deadline must be shorter than the duration minus the retry period. |
 | `agent.maxLagOnFailover` | 1 MiB | How far behind a standby may be and still be promoted. |
+| `metrics.exporters.enabled` | off | postgres_exporter beside each member (local socket, `pgha_monitor` with `pg_monitor`) and pgbouncer_exporter beside each pooler. |
+| `metrics.prometheusRule.enabled` | off | Alerts: no primary, split brain, member not ready, replication lag, fencing, settings pending a restart. |
 | `agent.logLevel` | `error` | `debug` in development clusters, `info` in staging. |
 
 ## 🔐 What is generated

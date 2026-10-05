@@ -44,6 +44,8 @@ app.kubernetes.io/instance: {{ include "pgha.name" . }}
 
 {{- define "pgha.postgresImage" -}}{{ include "pgha.image" (dict "image" .Values.image "defaultTag" "") }}{{- end -}}
 {{- define "pgha.agentImage" -}}{{ include "pgha.image" (dict "image" .Values.agent.image "defaultTag" .Chart.Version) }}{{- end -}}
+{{- define "pgha.postgresExporterImage" -}}{{ include "pgha.image" (dict "image" .Values.metrics.exporters.postgres.image "defaultTag" "") }}{{- end -}}
+{{- define "pgha.pgbouncerExporterImage" -}}{{ include "pgha.image" (dict "image" .Values.metrics.exporters.pgbouncer.image "defaultTag" "") }}{{- end -}}
 {{- define "pgha.pgbouncerImage" -}}{{ include "pgha.image" (dict "image" .Values.pgbouncer.image "defaultTag" "") }}{{- end -}}
 
 {{/* Credential Secret names: the user's existingSecret, or the generated one. */}}
@@ -72,7 +74,7 @@ app.kubernetes.io/instance: {{ include "pgha.name" . }}
 
 {{/* Settings the chart owns. Users cannot override them through parameters. */}}
 {{- define "pgha.ownedSettings" -}}
-{{- list "primary_conninfo" "primary_slot_name" "restore_command" "recovery_target" "recovery_target_time" "recovery_target_lsn" "recovery_target_name" "recovery_target_xid" "recovery_target_action" "recovery_target_inclusive" "recovery_target_timeline" "archive_mode" "archive_command" "ssl" "ssl_cert_file" "ssl_key_file" "ssl_ca_file" "listen_addresses" "port" "unix_socket_directories" "hba_file" "config_file" "data_directory" "wal_level" "hot_standby" "wal_log_hints" "synchronous_standby_names" "password_encryption" "include" "include_if_exists" "include_dir" | toJson -}}
+{{- list "primary_conninfo" "primary_slot_name" "restore_command" "recovery_target" "recovery_target_time" "recovery_target_lsn" "recovery_target_name" "recovery_target_xid" "recovery_target_action" "recovery_target_inclusive" "recovery_target_timeline" "archive_mode" "archive_command" "ssl" "ssl_cert_file" "ssl_key_file" "ssl_ca_file" "listen_addresses" "port" "unix_socket_directories" "hba_file" "config_file" "data_directory" "wal_level" "hot_standby" "wal_log_hints" "synchronous_standby_names" "password_encryption" "ident_file" "include" "include_if_exists" "include_dir" | toJson -}}
 {{- end -}}
 
 {{/* Parameters that need a restart; the pods roll when one changes. */}}
