@@ -62,6 +62,14 @@ all_streaming() {
 
 in_recovery() { [ "$(sql "$1" 'select pg_is_in_recovery()')" = "t" ]; }
 
+# read_write succeeds only when the member answers and is not in recovery;
+# a member that does not answer is neither.
+read_write() { [ "$(sql "$1" 'select pg_is_in_recovery()')" = "f" ]; }
+
+# member_streaming checks the member's own WAL receiver, not the primary's
+# view, which can still list a connection that is going away.
+member_streaming() { [ "$(sql "$1" "select status from pg_stat_wal_receiver")" = "streaming" ]; }
+
 has_row() { [ "$(DB=app sql "$1" "select count(*) from e2e where v = '$2'" 2>/dev/null)" = "1" ]; }
 
 # app_write is idempotent: an attempt that timed out on the client may still
