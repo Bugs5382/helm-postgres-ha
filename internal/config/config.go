@@ -63,6 +63,9 @@ type Restore struct {
 	// Prefix is the WAL-G storage prefix holding the source backups. Empty means
 	// the cluster's own prefix.
 	Prefix string
+	// Storage is the source's backend, s3 or file. Empty means s3 for a
+	// Prefix, and the cluster's own backend without one.
+	Storage string
 	// At most one of the targets is set; none means recover to the end of WAL.
 	TargetTime string
 	TargetLSN  string
@@ -215,6 +218,7 @@ func Load(get Getenv) (Config, error) {
 			Restore: Restore{
 				Backup:          r.str("PGHA_RESTORE_BACKUP", "LATEST"),
 				Prefix:          r.str("PGHA_RESTORE_PREFIX", ""),
+				Storage:         r.str("PGHA_RESTORE_STORAGE", ""),
 				TargetTime:      r.str("PGHA_RESTORE_TARGET_TIME", ""),
 				TargetLSN:       r.str("PGHA_RESTORE_TARGET_LSN", ""),
 				TargetName:      r.str("PGHA_RESTORE_TARGET_NAME", ""),
