@@ -73,7 +73,7 @@ trap - EXIT
 
 log "rejoin: the old primary comes back as a standby of the new one"
 wait_for 240 all_streaming || fail "old primary did not rejoin"
-in_recovery "$OLD" || fail "$OLD came back read-write"
+wait_for 60 member_streaming "$OLD" || fail "$OLD is not streaming as a standby"
 OLD_LOG=$($K logs "$OLD" -c postgres)
 grep -q '"code":1111' <<<"$OLD_LOG" || fail "$OLD did not fence itself when it woke up"
 wait_for 30 has_row "$OLD" after-failover || fail "$OLD does not have the row written after the failover"
@@ -86,7 +86,7 @@ NEW=$(primary)
 log "  $OLD handed over to $NEW"
 wait_for 60 app_write after-switchover || fail "writes did not resume after the switchover"
 wait_for 120 all_streaming || fail "cluster did not settle after the switchover"
-in_recovery "$OLD" || fail "$OLD is not a standby after the switchover"
+wait_for 60 member_streaming "$OLD" || fail "$OLD is not streaming as a standby after the switchover"
 
 log "partition: cut the primary off; it fences itself and the others fail over"
 OLD=$(primary)
@@ -109,7 +109,7 @@ log "  writes through pgbouncer resumed $((SECONDS - start))s after the takeover
 partition -D
 trap - EXIT
 wait_for 180 all_streaming || fail "partitioned member did not rejoin"
-in_recovery "$OLD" || fail "$OLD came back read-write after the partition healed"
+wait_for 60 member_streaming "$OLD" || fail "$OLD is not streaming as a standby after the partition healed"
 wait_for 30 has_row "$OLD" during-partition || fail "$OLD is missing writes from the partition"
 
 log "asymmetric partition: one standby loses the primary; nobody fails over"
@@ -137,7 +137,7 @@ wait_for 30 has_row "$S" during-asymmetric-partition || fail "$S is missing writ
 log "config rollout: a values change reaches the running cluster without a restart"
 P=$(primary)
 UIDS=$($K get pods -l "app.kubernetes.io/instance=$R,app.kubernetes.io/name=postgres-ha" -o jsonpath='{.items[*].metadata.uid}')
-helm upgrade "$R" "$CHART" -n "$NS" -f "$HERE/values.yaml" --set 'postgresql.allowedCIDRs={10.244.0.0/16,10.99.0.0/16}' --wait --timeout 5m >/dev/null || fail "helm upgrade failed"
+helm upgrade "$R" "$CHART" -n "$NS" --reuse-values --set 'postgresql.allowedCIDRs={10.244.0.0/16,10.99.0.0/16}' --wait --timeout 5m >/dev/null || fail "helm upgrade failed"
 hba_updated() { [ "$(sql "$P" "select count(*) from pg_hba_file_rules where address = '10.99.0.0'")" -ge 1 ]; }
 wait_for 150 hba_updated || fail "pg_hba.conf change did not reach $P"
 [ "$($K get pods -l "app.kubernetes.io/instance=$R,app.kubernetes.io/name=postgres-ha" -o jsonpath='{.items[*].metadata.uid}')" = "$UIDS" ] || fail "a reloadable change restarted the members"
@@ -151,14 +151,67 @@ if [ "$(primary)" = "$R-0" ]; then
 fi
 P=$(primary)
 SYSID=$($K get lease "$R" -o jsonpath='{.metadata.annotations.postgres-ha/system-identifier}')
-app_write before-rebuild || fail "write before the rebuild failed"
+wait_for 60 app_write before-rebuild || fail "write before the rebuild failed"
 $K delete pvc "data-$R-0" --wait=false >/dev/null
 $K delete pod "$R-0" >/dev/null
-wait_for 240 all_streaming || fail "$R-0 did not come back streaming"
-in_recovery "$R-0" || fail "$R-0 came back read-write on an empty volume"
+wait_for 240 member_streaming "$R-0" || fail "$R-0 did not come back streaming"
+wait_for 60 all_streaming || fail "the cluster did not settle after the rebuild"
+if read_write "$R-0"; then fail "$R-0 came back read-write on an empty volume"; fi
 [ "$(sql "$R-0" 'select system_identifier from pg_control_system()')" = "$SYSID" ] || fail "$R-0 has another system identifier"
 $K logs "$R-0" -c postgres | grep -q 'bootstrapping the cluster' && fail "$R-0 ran initdb over an existing cluster"
 wait_for 30 has_row "$R-0" before-rebuild || fail "$R-0 is missing data from $P"
 [ "$(primary)" = "$P" ] || fail "the rebuild moved the primary"
+log "rolling upgrade under write load: one planned handover, few failed writes"
+all_ready() { [ "$($K get sts "$R" -o jsonpath='{.status.readyReplicas}')" = "3" ]; }
+wait_for 180 all_streaming || fail "cluster not settled before the upgrade"
+TRANSITIONS=$($K get lease "$R" -o jsonpath='{.spec.leaseTransitions}')
+app "create table if not exists load (id bigserial primary key, at timestamptz default now())" >/dev/null
+# One write every 200ms through PgBouncer, each its own connection, until
+# the stop file appears; the loop records ok or fail per attempt.
+$K exec -i client -- sh -c 'cat > /tmp/load.sh' <<LOAD
+#!/bin/bash
+rm -f /tmp/stop /tmp/load.log
+until [ -f /tmp/stop ]; do
+  t=\$(date +%H:%M:%S.%N | cut -c1-12)
+  if out=\$(psql "host=$R-pgbouncer.$NS.svc user=app dbname=app" -XAtq -c "insert into load default values" 2>&1); then echo "\$t ok"; else echo "\$t fail \$(echo \$out | cut -c1-120)"; fi >> /tmp/load.log
+  sleep 0.2
+done
+LOAD
+$K exec client -- sh -c 'nohup bash /tmp/load.sh >/dev/null 2>&1 &'
+# Keep each member's log through the roll: the pods are replaced, and their
+# old logs go with them.
+UPLOG=${UPGRADE_LOG_DIR:-$(mktemp -d)}
+LOGS=()
+for m in "$R-0" "$R-1" "$R-2"; do kubectl -n "$NS" logs -f "$m" -c postgres --since=1s > "$UPLOG/$m.log" 2>&1 & LOGS+=($!); done
+log "  member logs for the roll in $UPLOG"
+sleep 3
+helm upgrade "$R" "$CHART" -n "$NS" --reuse-values --set-string "podAnnotations.e2e-roll=$(date +%s)" --wait --timeout 10m >/dev/null || fail "helm upgrade failed"
+kubectl -n "$NS" rollout status "sts/$R" --timeout=600s >/dev/null || fail "the rollout did not finish"
+wait_for 180 all_streaming || fail "cluster did not settle after the upgrade"
+sleep 3
+$K exec client -- touch /tmp/stop
+sleep 1
+OK=$($K exec client -- grep -c ' ok$' /tmp/load.log || true)
+FAILED=$($K exec client -- grep -c ' fail' /tmp/load.log || true)
+kill "${LOGS[@]}" 2>/dev/null || true
+if (( FAILED > 0 )); then
+  log "  failed writes, first and last of each run of errors:"
+  $K exec client -- grep ' fail' /tmp/load.log | awk '{e=substr($0, index($0,$3)); if (e!=last) {print "    " $0; last=e}}' | head -20
+fi
+log "  writes during the upgrade: $OK ok, $FAILED failed"
+AFTER=$($K get lease "$R" -o jsonpath='{.spec.leaseTransitions}')
+(( AFTER - TRANSITIONS <= 1 )) || fail "the upgrade moved the lease $((AFTER - TRANSITIONS)) times, want at most one planned handover"
+(( FAILED <= 40 )) || fail "$FAILED writes failed during the upgrade"
+(( OK >= 50 )) || fail "only $OK writes succeeded during the upgrade"
+[ "$(app 'select count(*) from load')" -ge "$OK" ] || fail "committed writes are missing after the upgrade"
+
+log "disruption budget: a second member cannot be evicted while one is out"
+wait_for 180 all_ready || fail "members not ready before the eviction test"
+evict() { printf '{"apiVersion":"policy/v1","kind":"Eviction","metadata":{"name":"%s","namespace":"%s"}}' "$1" "$NS" | kubectl create --raw "/api/v1/namespaces/$NS/pods/$1/eviction" -f - >/dev/null 2>&1; }
+S1=""; S2=""
+for m in "$R-0" "$R-1" "$R-2"; do [ "$m" = "$(primary)" ] && continue; if [ -z "$S1" ]; then S1=$m; else S2=$m; fi; done
+evict "$S1" || fail "the first eviction was refused with every member ready"
+if evict "$S2"; then fail "a second member was evicted while $S1 was out"; fi
+wait_for 240 all_ready || fail "$S1 did not come back after the eviction"
 
 log "all failover tests passed"
