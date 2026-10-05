@@ -35,7 +35,8 @@ ann_sum=$(printf '%s' "$render" | yq -r 'select(.kind == "Deployment") | .spec.t
 [ "$ini_sum" = "$ann_sum" ] || { echo "checksum/config ($ann_sum) is not the hash of pgbouncer.ini ($ini_sum)"; exit 1; }
 echo "== alert rules: promtool check and unit tests"
 RULES_DIR=$(mktemp -d)
-helm template pg "$CHART" -n db -f "$CHART/ci/default-values.yaml" --set metrics.prometheusRule.enabled=true -s templates/prometheusrule.yaml \
+helm template pg "$CHART" -n db -f "$CHART/ci/default-values.yaml" --set metrics.prometheusRule.enabled=true \
+  --set backup.enabled=true --set backup.s3.prefix=s3://b/p --set backup.s3.existingSecret=s3 -s templates/prometheusrule.yaml \
   | yq '.spec' > "$RULES_DIR/rules.yaml"
 cp "$CHART/tests/rules/rules.test.yaml" "$RULES_DIR/"
 promtool check rules "$RULES_DIR/rules.yaml"

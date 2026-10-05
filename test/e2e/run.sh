@@ -10,11 +10,17 @@ source "$HERE/lib.sh"
 start_client
 
 log "bootstrap: every member ready and both standbys streaming"
-$K rollout status "sts/$R" --timeout=300s >/dev/null || fail "members not ready"
+kubectl -n "$NS" rollout status "sts/$R" --timeout=300s >/dev/null || fail "members not ready"
 wait_for 60 all_streaming || fail "standbys not streaming"
 P=$(primary); [ "$P" = "$(holder)" ] || fail "labelled primary $P is not the lease holder $(holder)"
 sync=$(sql "$P" "select string_agg(sync_state, ',' order by application_name) from pg_stat_replication")
 [ "$sync" = "quorum,quorum" ] || fail "standbys are not quorum synchronous: $sync"
+
+log "replica service: both standbys, never the primary"
+PIP=$($K get pod "$(primary)" -o jsonpath='{.status.podIP}')
+two_replicas() { [ "$(replica_endpoints | wc -w)" = "2" ]; }
+wait_for 60 two_replicas || fail "the replica service does not have both standbys: $(replica_endpoints)"
+case " $(replica_endpoints) " in *" $PIP "*) fail "the replica service routes to the primary" ;; esac
 
 log "roles and databases: the app role writes through PgBouncer over TLS"
 wait_for 60 app "drop table if exists e2e; create table e2e (id bigserial primary key, v text not null)" || fail "app cannot connect through pgbouncer"
@@ -54,6 +60,24 @@ reach client $R-primary.$NS.svc 5432 || fail "the allowed client cannot reach th
 reach client $R-pgbouncer.$NS.svc 5432 || fail "the allowed client cannot reach pgbouncer"
 if reach client "$P.$R-headless.$NS.svc" 8009; then fail "an application client reached the peer API"; fi
 $K delete pod outsider --wait=false >/dev/null
+
+log "postmaster crash: kill -9 under a WAL backlog; the agent restarts it, the kubelet does not"
+P=$(primary)
+RESTARTS=$($K get pod "$P" -o jsonpath='{.status.containerStatuses[0].restartCount}')
+app "create table if not exists crash (id bigserial primary key, pad text)" >/dev/null
+# About 200 MB of WAL since the last checkpoint, so crash recovery has work.
+# Uncapped: this insert can take longer than the 30s bound on other calls.
+kubectl -n "$NS" exec "$P" -c postgres -- psql -h /var/run/postgresql -U postgres -d app -XAtq -c "checkpoint" -c "insert into crash (pad) select repeat('x', 1000) from generate_series(1, 150000)" >/dev/null
+app_write before-crash || fail "write before the crash failed"
+# shellcheck disable=SC2016 # expands inside the container
+$K exec "$P" -c postgres -- sh -c 'kill -9 "$(head -1 "$PGDATA/postmaster.pid")"'
+back() { local p; p=$(primary); [ -n "$p" ] && read_write "$p"; }
+wait_for 180 back || fail "no primary after the postmaster was killed"
+wait_for 60 app_write after-crash || fail "writes did not resume after the crash"
+[ "$($K get pod "$P" -o jsonpath='{.status.containerStatuses[0].restartCount}')" = "$RESTARTS" ] || fail "the kubelet restarted $P's container"
+wait_for 180 all_streaming || fail "the cluster did not settle after the crash"
+has_row "$(primary)" before-crash || fail "a committed row was lost in the crash"
+log "  $(primary) is primary; $P's container was not restarted"
 
 log "unplanned failover: freeze the primary's node"
 OLD=$P
@@ -141,11 +165,56 @@ sleep 45
 [ "$($K get lease "$R" -o jsonpath='{.spec.leaseTransitions}')" = "$TRANSITIONS" ] || fail "the lease changed hands"
 [ "$(primary)" = "$P" ] || fail "another member was labelled primary"
 in_recovery "$S" || fail "$S left recovery"
+case " $(replica_endpoints) " in *" $SIP "*) fail "the replica service still routes to $S, which is not streaming" ;; esac
+case " $(replica_endpoints) " in *" $PIP "*) fail "the replica service routes to the primary" ;; esac
 app_write during-asymmetric-partition || fail "writes failed while only $S was cut off"
 cut_pair -D
 trap - EXIT
 wait_for 120 all_streaming || fail "$S did not stream again after the path healed"
+back_in_service() { case " $(replica_endpoints) " in *" $SIP "*) return 0 ;; esac; return 1; }
+wait_for 60 back_in_service || fail "$S did not return to the replica service"
 wait_for 30 has_row "$S" during-asymmetric-partition || fail "$S is missing writes from the partition"
+
+log "fell behind: a standby misses more WAL than its slot may hold; it is rebuilt and streams again"
+P=$(primary)
+S=$(for m in "$R-0" "$R-1" "$R-2"; do [ "$m" != "$P" ] && echo "$m" && break; done)
+helm upgrade "$R" "$CHART" -n "$NS" --reuse-values --set-string postgresql.parameters.max_slot_wal_keep_size=32MB --set-string postgresql.parameters.wal_keep_size=0 --wait --timeout 5m >/dev/null || fail "helm upgrade failed"
+slot_limit() { [ "$(sql "$P" "show max_slot_wal_keep_size")" = "32MB" ]; }
+wait_for 150 slot_limit || fail "the lower slot limit did not reach $P"
+SNODE=$($K get pod "$S" -o jsonpath='{.spec.nodeName}')
+SIP=$($K get pod "$S" -o jsonpath='{.status.podIP}')
+PIP=$($K get pod "$P" -o jsonpath='{.status.podIP}')
+# Only the path between the standby and the primary: the kubelet and the
+# API server still reach the standby, so it is not restarted meanwhile.
+cut_standby() { docker exec "$SNODE" iptables -t raw "$1" PREROUTING -s "$SIP" -d "$PIP" -j DROP; docker exec "$SNODE" iptables -t raw "$1" PREROUTING -s "$PIP" -d "$SIP" -j DROP; }
+cut_standby -I
+trap 'cut_standby -D 2>/dev/null || true' EXIT
+app "create table if not exists behind (id bigserial primary key, pad text)" >/dev/null
+# Write WAL until the slot loses it. These statements can take longer than
+# the 30s bound on other calls, so they use kubectl directly.
+psql_long() { kubectl -n "$NS" exec "$P" -c postgres -- psql -h /var/run/postgresql -U postgres -d app -XAtq -c "$1" >/dev/null; }
+# The primary recreates a lost slot within a minute, so either the slot is
+# lost now or the primary has logged replacing it.
+lost() {
+  [ "$(sql "$P" "select wal_status from pg_replication_slots where slot_name = replace('$S', '-', '_')")" = "lost" ] ||
+    $K logs "$P" -c postgres --since=10m | grep -q 'dropped a replication slot whose WAL was removed'
+}
+for _ in $(seq 1 20); do
+  lost && break
+  psql_long "insert into behind (pad) select repeat('x', 1000) from generate_series(1, 20000)"
+  psql_long "select pg_switch_wal()"
+  psql_long "checkpoint"
+done
+lost || fail "the slot for $S did not lose its WAL"
+app_write while-behind || fail "write while $S was behind failed"
+cut_standby -D
+trap - EXIT
+# Recovery takes up to two rejoin timeouts: one rewind that finds nothing
+# to change, then a re-clone. A receiver that starts and fails on removed
+# WAL reports streaming for a moment, so wait on the data.
+wait_for 360 has_row "$S" while-behind || fail "$S is missing the rows written while it was behind"
+wait_for 60 member_streaming "$S" || fail "$S is not streaming after falling behind"
+helm upgrade "$R" "$CHART" -n "$NS" --reuse-values --set-string postgresql.parameters.max_slot_wal_keep_size=512MB --set-string postgresql.parameters.wal_keep_size=64MB --wait --timeout 5m >/dev/null || fail "helm upgrade failed"
 
 log "config rollout: a values change reaches the running cluster without a restart"
 P=$(primary)

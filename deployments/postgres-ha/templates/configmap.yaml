@@ -38,6 +38,14 @@ data:
     wal_receiver_timeout = '15s'
     wal_sender_timeout = '15s'
     wal_retrieve_retry_interval = '2s'
+    # A walsender blocked writing to a standby that stopped acknowledging
+    # (a network blackhole) never reaches its wal_sender_timeout check, and
+    # holds its slot so that slot invalidation, and with it every checkpoint,
+    # waits forever. Unacknowledged sends fail after 10s instead.
+    tcp_user_timeout = '10s'
+    tcp_keepalives_idle = 10
+    tcp_keepalives_interval = 5
+    tcp_keepalives_count = 3
     {{- if .Values.backup.enabled }}
     archive_mode = on
     archive_command = '/pgha/bin/wal-g wal-push "%p"'

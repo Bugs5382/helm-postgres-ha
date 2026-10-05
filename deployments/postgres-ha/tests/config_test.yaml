@@ -66,3 +66,11 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: mutual TLS is required
+  - it: drops replication and client connections whose sends go unacknowledged
+    asserts:
+      - matchRegex:
+          path: data["postgresql.conf"]
+          pattern: "(?m)^tcp_user_timeout = '10s'$"
+      - matchRegex:
+          path: data["postgresql.conf"]
+          pattern: "(?m)^tcp_keepalives_idle = 10$"

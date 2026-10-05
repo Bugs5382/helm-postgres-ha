@@ -62,4 +62,46 @@ spec:
           annotations:
             summary: "{{ $name }} member {{ "{{" }} $labels.pod {{ "}}" }} has settings waiting for a restart"
             description: "A changed setting only takes effect after a restart, and the pods have not rolled."
+        - alert: PostgresHADiskFilling
+          expr: (1 - pgha_data_volume_available_bytes{ {{- $sel -}} } / pgha_data_volume_size_bytes{ {{- $sel -}} }) * 100 > {{ $r.diskUsedPercent }}
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $name }} member {{ "{{" }} $labels.pod {{ "}}" }}'s data volume is {{ "{{" }} $value | humanize {{ "}}" }}% full"
+            description: "Over {{ $r.diskUsedPercent }}% of the data volume is used. Slots holding WAL for a lagging standby, failing archiving or growth are the usual causes."
+        {{- if .Values.backup.enabled }}
+        - alert: PostgresHAArchiveFailing
+          expr: delta(pgha_archive_failed_count{ {{- $sel -}} }[5m]) > 0
+          labels:
+            severity: critical
+          annotations:
+            summary: "{{ $name }} member {{ "{{" }} $labels.pod {{ "}}" }} cannot archive WAL"
+            description: "archive_command is failing, so WAL piles up in pg_wal and point-in-time recovery has a gap. Check the object storage and its credentials."
+        - alert: PostgresHABackupTooOld
+          expr: time() - max(pgha_backup_last_success_timestamp_seconds{ {{- $sel -}} }) > {{ mul (int $r.backupMaxAgeHours) 3600 }}
+          for: 15m
+          labels:
+            severity: critical
+          annotations:
+            summary: "{{ $name }} has no base backup newer than {{ $r.backupMaxAgeHours }}h"
+            description: "The last successful base backup of {{ .Release.Namespace }}/{{ $name }} is older than {{ $r.backupMaxAgeHours }} hours. Check the backup Lease's postgres-ha/last-failure and the members' logs (code 1110)."
+        {{- if .Values.backup.verify.enabled }}
+        - alert: PostgresHARestoreCheckFailing
+          expr: min(pgha_backup_last_verify_ok{ {{- $sel -}} }) == 0
+          labels:
+            severity: critical
+          annotations:
+            summary: "{{ $name }}'s latest backup did not restore"
+            description: "The scheduled restore check of {{ .Release.Namespace }}/{{ $name }} failed. Run it by hand (see the runbook) and read its log."
+        - alert: PostgresHARestoreCheckStale
+          expr: time() - max(pgha_backup_last_verify_timestamp_seconds{ {{- $sel -}} }) > 2 * 86400
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $name }}'s restore check has not run for two days"
+            description: "The {{ $name }}-backup-verify CronJob has not recorded a result for two days: suspended, failing to start, or failing before it records."
+        {{- end }}
+        {{- end }}
 {{- end }}

@@ -74,7 +74,7 @@ app.kubernetes.io/instance: {{ include "pgha.name" . }}
 
 {{/* Settings the chart owns. Users cannot override them through parameters. */}}
 {{- define "pgha.ownedSettings" -}}
-{{- list "primary_conninfo" "primary_slot_name" "restore_command" "recovery_target" "recovery_target_time" "recovery_target_lsn" "recovery_target_name" "recovery_target_xid" "recovery_target_action" "recovery_target_inclusive" "recovery_target_timeline" "archive_mode" "archive_command" "ssl" "ssl_cert_file" "ssl_key_file" "ssl_ca_file" "listen_addresses" "port" "unix_socket_directories" "hba_file" "config_file" "data_directory" "wal_level" "hot_standby" "wal_log_hints" "synchronous_standby_names" "password_encryption" "ident_file" "include" "include_if_exists" "include_dir" | toJson -}}
+{{- list "primary_conninfo" "primary_slot_name" "restore_command" "recovery_target" "recovery_target_time" "recovery_target_lsn" "recovery_target_name" "recovery_target_xid" "recovery_target_action" "recovery_target_inclusive" "recovery_target_timeline" "archive_mode" "archive_command" "ssl" "ssl_cert_file" "ssl_key_file" "ssl_ca_file" "listen_addresses" "port" "unix_socket_directories" "hba_file" "config_file" "data_directory" "wal_level" "hot_standby" "wal_log_hints" "synchronous_standby_names" "password_encryption" "tcp_user_timeout" "ident_file" "include" "include_if_exists" "include_dir" | toJson -}}
 {{- end -}}
 
 {{/* memoryMB turns a Kubernetes memory quantity into megabytes (MiB). */}}

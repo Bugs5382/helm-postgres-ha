@@ -44,7 +44,10 @@ lag check only applies while every candidate is behind the last recorded positio
 
 ## Rebuilding a member
 
-A member whose data cannot be rewound is moved aside and cloned automatically. To force a rebuild
+A member whose data cannot be rewound is moved aside and cloned automatically. So is a standby
+that fell further behind than its slot may hold (`max_slot_wal_keep_size`): the primary recreates
+the lost slot, and the standby, still unable to stream after a rewind that found nothing to
+change, re-clones. To force a rebuild
 (a corrupted or foreign volume):
 
 ```bash
@@ -100,6 +103,22 @@ kubectl -n db logs -f job/verify-now -c verify
 
 Point `backup.verify.query` at a table your application always writes to, so the check proves
 recent data is there and not only that the server starts.
+
+## Backup retention
+
+After each successful base backup, the member that took it runs
+`wal-g delete retain FULL <backup.retainFull> --after <now - backup.retainDays> --confirm`. That
+keeps every full backup newer than `retainDays` days, and never fewer than `retainFull` full backups
+even if no backup succeeded for a while. WAL older than the oldest kept backup goes with it.
+
+Your point-in-time restore window is therefore at least `retainDays` days back from now, or back to
+the `retainFull`-th most recent full backup if that is older. With the defaults (daily backups,
+`retainDays: 14`, `retainFull: 7`) you can restore to any moment of the last two weeks.
+
+Retention only runs after a successful backup, so failing backups never delete older ones.
+`PostgresHABackupTooOld` pages when the newest backup is older than
+`metrics.prometheusRule.backupMaxAgeHours`, including when the schedule stops running
+altogether.
 
 ## Taking a backup now
 
