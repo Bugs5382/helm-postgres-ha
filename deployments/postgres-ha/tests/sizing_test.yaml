@@ -1,0 +1,41 @@
+suite: memory sizing
+templates: [configmap.yaml]
+set:
+  postgresql.allowedCIDRs: ["10.244.0.0/16"]
+tests:
+  - it: sizes shared_buffers at a quarter and effective_cache_size at three quarters of the memory limit
+    set:
+      resources.limits.memory: 4Gi
+    asserts:
+      - matchRegex:
+          path: data["postgresql.conf"]
+          pattern: "(?m)^shared_buffers = '1024MB'$"
+      - matchRegex:
+          path: data["postgresql.conf"]
+          pattern: "(?m)^effective_cache_size = '3072MB'$"
+  - it: reads M and G quantities as well
+    set:
+      resources.limits.memory: 2G
+    asserts:
+      - matchRegex:
+          path: data["postgresql.conf"]
+          pattern: "(?m)^shared_buffers = '476MB'$"
+  - it: falls back to the memory request without a limit
+    set:
+      resources.limits: null
+      resources.requests.memory: 512Mi
+    asserts:
+      - matchRegex:
+          path: data["postgresql.conf"]
+          pattern: "(?m)^shared_buffers = '128MB'$"
+  - it: keeps an explicit setting
+    set:
+      resources.limits.memory: 4Gi
+      postgresql.parameters.shared_buffers: 300MB
+    asserts:
+      - matchRegex:
+          path: data["postgresql.conf"]
+          pattern: "(?m)^shared_buffers = '300MB'$"
+      - notMatchRegex:
+          path: data["postgresql.conf"]
+          pattern: "(?m)^shared_buffers = '1024MB'$"

@@ -80,3 +80,8 @@ spec:
     - name: http
       port: 8008
       targetPort: http
+    {{- if .Values.metrics.exporters.enabled }}
+    - name: exporter
+      port: 9187
+      targetPort: exporter
+    {{- end }}

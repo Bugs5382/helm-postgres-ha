@@ -25,6 +25,7 @@ sum() { helm template pg "$CHART" -f "$CHART/ci/default-values.yaml" "$@" | sed 
 base=$(sum)
 [ "$(sum --set postgresql.parameters.work_mem=64MB)" = "$base" ] || { echo "a reloadable setting rolled the pods"; exit 1; }
 [ "$(sum --set postgresql.parameters.shared_buffers=512MB)" != "$base" ] || { echo "a restart-only setting did not roll the pods"; exit 1; }
+[ "$(sum --set resources.limits.memory=8Gi)" != "$base" ] || { echo "a memory change moved shared_buffers but did not roll the pods"; exit 1; }
 [ "$(sum --set replicas=5)" != "$base" ] || { echo "max_wal_senders follows replicas but did not roll the pods"; exit 1; }
 echo "== pgbouncer checksum: the pods roll whenever the rendered pgbouncer.ini changes"
 render=$(helm template pg "$CHART" -f "$CHART/ci/default-values.yaml" -s templates/pgbouncer.yaml)
@@ -32,4 +33,11 @@ ini=$(printf '%s' "$render" | yq -r 'select(.kind == "ConfigMap") | .data["pgbou
 ini_sum=$(printf '%s' "$ini" | sha256sum | cut -d' ' -f1)
 ann_sum=$(printf '%s' "$render" | yq -r 'select(.kind == "Deployment") | .spec.template.metadata.annotations["checksum/config"]')
 [ "$ini_sum" = "$ann_sum" ] || { echo "checksum/config ($ann_sum) is not the hash of pgbouncer.ini ($ini_sum)"; exit 1; }
+echo "== alert rules: promtool check and unit tests"
+RULES_DIR=$(mktemp -d)
+helm template pg "$CHART" -n db -f "$CHART/ci/default-values.yaml" --set metrics.prometheusRule.enabled=true -s templates/prometheusrule.yaml \
+  | yq '.spec' > "$RULES_DIR/rules.yaml"
+cp "$CHART/tests/rules/rules.test.yaml" "$RULES_DIR/"
+promtool check rules "$RULES_DIR/rules.yaml"
+promtool test rules "$RULES_DIR/rules.test.yaml"
 echo "chart checks passed"

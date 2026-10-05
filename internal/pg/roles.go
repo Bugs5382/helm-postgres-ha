@@ -39,6 +39,9 @@ const (
 	RoleReplication = "replicator"
 	RoleRewind      = "pgha_rewind"
 	RolePgBouncer   = "pgbouncer_auth"
+	// RoleMonitor is the exporters' login. It has no password: it only
+	// connects over the local socket, mapped from the postgres OS user.
+	RoleMonitor = "pgha_monitor"
 )
 
 // RoleSpec is one application role from the chart's values.
@@ -79,7 +82,7 @@ func LoadSpec(path string) (Spec, error) {
 	return s, s.Validate()
 }
 
-var reserved = []string{RoleSuperuser, RoleReplication, RoleRewind, RolePgBouncer}
+var reserved = []string{RoleSuperuser, RoleReplication, RoleRewind, RolePgBouncer, RoleMonitor}
 
 // Validate rejects specs the reconciler would refuse halfway through.
 func (s Spec) Validate() error {
@@ -167,6 +170,12 @@ func (r *Reconciler) Apply(ctx context.Context, spec Spec, creds Credentials, re
 			return fmt.Errorf("grant rewind functions: %w", err)
 		}
 	}
+	if err := r.ensureRole(ctx, RoleMonitor, "", []string{"LOGIN", "NOSUPERUSER", "NOCREATEDB", "NOCREATEROLE"}); err != nil {
+		return err
+	}
+	if err := r.db.Exec(ctx, "postgres", "GRANT pg_monitor TO "+QuoteIdent(RoleMonitor)); err != nil {
+		return fmt.Errorf("grant pg_monitor: %w", err)
+	}
 	for _, role := range spec.Roles {
 		pw, err := readPassword(role.PasswordFile)
 		if err != nil {
@@ -247,7 +256,7 @@ RETURNS TABLE(usename name, passwd text)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog AS $$
   SELECT rolname, rolpassword FROM pg_authid
   WHERE rolname = p_usename AND rolcanlogin AND NOT rolsuper AND NOT rolreplication
-    AND rolname NOT IN ('pgha_rewind', 'pgbouncer_auth')
+    AND rolname NOT IN ('pgha_rewind', 'pgbouncer_auth', 'pgha_monitor')
     AND (rolvaliduntil IS NULL OR rolvaliduntil > now())
 $$`
 
