@@ -49,6 +49,11 @@ BY=$($K get lease pg-backup -o jsonpath='{.metadata.annotations.postgres-ha/last
 [ "$BY" != "$P" ] || fail "the backup ran on the primary, not a standby"
 log "  backup by standby $BY"
 
+log "the primary archives the standby backup's last WAL segment at once"
+LAST=$($K get lease pg-backup -o jsonpath='{.metadata.annotations.postgres-ha/last-success}')
+archived_since() { [ "$(sql "$P" "select coalesce(last_archived_time >= '$LAST'::timestamptz, false) from pg_stat_archiver")" = "t" ]; }
+wait_for 60 archived_since || fail "WAL was not archived after the standby backup (archive_timeout is 300s)"
+
 log "restore check: the scheduled job restores the latest backup and records the result"
 $K delete job verify-now --ignore-not-found >/dev/null
 $K create job verify-now --from=cronjob/pg-backup-verify >/dev/null

@@ -136,6 +136,11 @@ kubectl -n db get lease pg-backup -o jsonpath='{.metadata.annotations}{"\n"}'
 backup and the member that took it. `pgha_backup_last_success_timestamp_seconds` exports the same
 time from every member.
 
+A backup taken on a standby ends inside the primary's current WAL segment, so it can only be
+restored once that segment is archived. When the primary sees a new backup on the Lease, it
+switches WAL straight away (`pg_switch_wal()`), so the backup is restorable within seconds rather
+than after `archive_timeout` (300s).
+
 ## Certificates
 
 With `tls.certManager.enabled` (the default) the chart creates a CA for the release and issues the

@@ -82,21 +82,23 @@ type Options struct {
 
 // Agent is one member's control loop.
 type Agent struct {
-	cfg     config.Config
-	topo    cluster.Topology
-	me      string
-	log     golog.Logger
-	node    Node
-	lease   Leases
-	peers   Peers
-	kube    Kube
-	m       *metrics.Set
-	bk      Backups
-	poolers Poolers
-	read    func(string) (string, error)
-	spec    func(string) (pg.Spec, error)
-	stamp   func(string) string
-	now     func() time.Time
+	cfg   config.Config
+	topo  cluster.Topology
+	me    string
+	log   golog.Logger
+	node  Node
+	lease Leases
+	peers Peers
+	kube  Kube
+	m     *metrics.Set
+	bk    Backups
+	// seenBackup is the last backup success the primary acted on.
+	seenBackup time.Time
+	poolers    Poolers
+	read       func(string) (string, error)
+	spec       func(string) (pg.Spec, error)
+	stamp      func(string) string
+	now        func() time.Time
 
 	// Read by the watchdog and the HTTP handlers.
 	lastRenew atomic.Int64 // unix nanos of the send time of the last successful renew

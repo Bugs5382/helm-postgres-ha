@@ -149,6 +149,9 @@ func (l *Local) Promote(ctx context.Context, wait time.Duration) (bool, error) {
 	return l.db.Promote(ctx, wait)
 }
 
+// SwitchWAL closes the current WAL segment so it is archived now.
+func (l *Local) SwitchWAL(ctx context.Context) error { return l.db.SwitchWAL(ctx) }
+
 // Slots lists replication slots.
 func (l *Local) Slots(ctx context.Context) ([]Slot, error) { return l.db.Slots(ctx) }
 

@@ -186,6 +186,19 @@ func (d *DB) Promote(ctx context.Context, wait time.Duration) (bool, error) {
 	return ok, nil
 }
 
+// SwitchWAL closes the current WAL segment (pg_switch_wal), so the archiver
+// ships it now rather than at archive_timeout.
+func (d *DB) SwitchWAL(ctx context.Context) error {
+	p, err := d.conn(ctx, "postgres")
+	if err != nil {
+		return err
+	}
+	if _, err := p.Querier().Exec(ctx, "SELECT pg_switch_wal()"); err != nil {
+		return fmt.Errorf("pg_switch_wal: %w", err)
+	}
+	return nil
+}
+
 // Slot is a physical replication slot.
 type Slot struct {
 	Name   string
