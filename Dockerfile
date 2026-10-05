@@ -5,7 +5,11 @@
 ARG GO_IMAGE=docker.io/library/golang:1.26.8-bookworm@sha256:a688600ca24f8a4d3ca77f95b0dd40704a9fc787c826660eb7ba0b641b8b175d
 ARG BASE_IMAGE=gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
 
-FROM ${GO_IMAGE} AS walg
+# Both Go stages run on the build machine and cross-compile for the target
+# (both binaries are static), so a multi-platform build needs no emulation.
+# The final stage picks the target's variant of the distroless base.
+FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS walg
+ARG TARGETOS TARGETARCH
 ARG WALG_VERSION=v3.0.9
 ARG WALG_COMMIT=3e493188db28335fb93a45bd680c6ff8fc3028c1
 RUN git clone --depth 1 --branch "${WALG_VERSION}" https://github.com/wal-g/wal-g /src \
@@ -14,18 +18,19 @@ WORKDIR /src
 # The PostgreSQL build without the cgo-only compressors (brotli, lzo,
 # libsodium), so the binary is static and runs in any image.
 ENV CGO_ENABLED=0 GOEXPERIMENT=jsonv2 GOFLAGS=-mod=mod
-RUN go build -trimpath \
+RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath \
       -ldflags "-s -w -X github.com/wal-g/wal-g/cmd/pg.walgVersion=${WALG_VERSION} -X github.com/wal-g/wal-g/cmd/pg.gitRevision=${WALG_COMMIT}" \
       -o /out/wal-g ./main/pg
 
-FROM ${GO_IMAGE} AS agent
+FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS agent
+ARG TARGETOS TARGETARCH
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY cmd ./cmd
 COPY internal ./internal
 ARG VERSION=dev
-RUN CGO_ENABLED=0 go build -trimpath \
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath \
       -ldflags "-s -w -X github.com/Bugs5382/helm-postgres-ha/internal/commands.Version=${VERSION}" \
       -o /out/pgha ./cmd/pgha
 
