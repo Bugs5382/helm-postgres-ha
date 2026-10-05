@@ -121,6 +121,9 @@ func (l *Local) Start() error { return l.srv.Start() }
 // Running reports whether the postmaster runs.
 func (l *Local) Running() bool { return l.srv.Running() }
 
+// LastFatal returns the FATAL or PANIC message the last postmaster logged.
+func (l *Local) LastFatal() string { return l.srv.LastFatal() }
+
 // Stop stops the postmaster.
 func (l *Local) Stop(ctx context.Context, mode StopMode) error {
 	defer l.db.Close()
