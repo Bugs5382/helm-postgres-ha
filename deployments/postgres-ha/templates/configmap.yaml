@@ -3,8 +3,9 @@
 {{- range $k, $_ := .Values.postgresql.parameters }}
 {{- if has $k $owned }}{{ fail (printf "postgresql.parameters.%s is managed by the chart and cannot be set" $k) }}{{ end }}
 {{- end }}
-{{- if and .Values.backup.enabled (not .Values.backup.s3.prefix) }}{{ fail "backup.s3.prefix is required when backup.enabled is true" }}{{ end }}
-{{- if and .Values.backup.enabled (not .Values.backup.s3.existingSecret) }}{{ fail "backup.s3.existingSecret is required when backup.enabled is true" }}{{ end }}
+{{- $s3 := and .Values.backup.enabled (eq .Values.backup.storage "s3") -}}
+{{- if and $s3 (not .Values.backup.s3.prefix) }}{{ fail "backup.s3.prefix is required when backup.enabled is true" }}{{ end }}
+{{- if and $s3 (not .Values.backup.s3.existingSecret) }}{{ fail "backup.s3.existingSecret is required when backup.enabled is true" }}{{ end }}
 {{- if and (eq .Values.bootstrap.mode "restore") (not (or .Values.bootstrap.restore.prefix .Values.backup.enabled)) }}{{ fail "bootstrap.mode restore needs bootstrap.restore.prefix or backup.enabled" }}{{ end }}
 {{- if and (not .Values.tls.certManager.enabled) (not .Values.tls.existingSecret) }}{{ fail "mutual TLS is required: enable tls.certManager or set tls.existingSecret" }}{{ end }}
 apiVersion: v1

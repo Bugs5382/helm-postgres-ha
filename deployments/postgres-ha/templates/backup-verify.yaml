@@ -136,6 +136,11 @@ spec:
                   mountPath: /verify
                 - name: tmp
                   mountPath: /tmp
+                {{- if include "pgha.fileBackup" . }}
+                - name: backup
+                  mountPath: {{ .Values.backup.file.mountPath }}
+                  readOnly: true
+                {{- end }}
           volumes:
             - name: tools
               emptyDir:
@@ -146,4 +151,10 @@ spec:
             - name: tmp
               emptyDir:
                 sizeLimit: 1Gi
+            {{- if include "pgha.fileBackup" . }}
+            - name: backup
+              persistentVolumeClaim:
+                claimName: {{ include "pgha.backupClaim" . }}
+                readOnly: true
+            {{- end }}
 {{- end }}
