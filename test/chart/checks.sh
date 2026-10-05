@@ -41,4 +41,10 @@ helm template pg "$CHART" -n db -f "$CHART/ci/default-values.yaml" --set metrics
 cp "$CHART/tests/rules/rules.test.yaml" "$RULES_DIR/"
 promtool check rules "$RULES_DIR/rules.yaml"
 promtool test rules "$RULES_DIR/rules.test.yaml"
+echo "== values reference: VALUES.md matches values.yaml (helm-docs)"
+REF_DIR=$(mktemp -d)
+cp -r "$CHART" "$REF_DIR/chart"
+helm-docs --chart-search-root "$REF_DIR/chart" --template-files=VALUES.md.gotmpl --output-file=VALUES.md >/dev/null
+diff -u "$CHART/VALUES.md" "$REF_DIR/chart/VALUES.md" || { echo "VALUES.md is stale: run helm-docs (see AGENTS.md)"; exit 1; }
+rm -rf "$REF_DIR"
 echo "chart checks passed"
