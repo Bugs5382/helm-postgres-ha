@@ -78,6 +78,10 @@ helm install pgr ./deployments/postgres-ha -n restore --create-namespace \
 - `bootstrap.restore.backup` picks a base backup (default `LATEST`).
 - Set at most one of `targetTime`, `targetLSN` or `targetName`; none restores to the end of the
   archived WAL. `targetExclusive` stops just before the target.
+- A time target is reached only once a commit after it has been archived. A target past the end
+  of the archive (in the future, or newer than the last archived commit) cannot be reached: the
+  restoring member logs code `1113` and stays down rather than retrying. Uninstall the release,
+  delete its volumes, and restore again with an earlier target or none.
 - The restored primary promotes at the target onto a new timeline, archives to its own prefix
   and takes a fresh base backup at once. The standbys clone from it.
 

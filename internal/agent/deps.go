@@ -50,6 +50,8 @@ type Node interface {
 
 	Start() error
 	Running() bool
+	// LastFatal is the FATAL or PANIC message the last postmaster logged.
+	LastFatal() string
 	Stop(ctx context.Context, mode pg.StopMode) error
 	Reload() error
 
