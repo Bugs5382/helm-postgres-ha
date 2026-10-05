@@ -44,7 +44,10 @@ lag check only applies while every candidate is behind the last recorded positio
 
 ## Rebuilding a member
 
-A member whose data cannot be rewound is moved aside and cloned automatically. To force a rebuild
+A member whose data cannot be rewound is moved aside and cloned automatically. So is a standby
+that fell further behind than its slot may hold (`max_slot_wal_keep_size`): the primary recreates
+the lost slot, and the standby, still unable to stream after a rewind that found nothing to
+change, re-clones. To force a rebuild
 (a corrupted or foreign volume):
 
 ```bash

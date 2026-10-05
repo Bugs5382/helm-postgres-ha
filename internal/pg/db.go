@@ -190,6 +190,9 @@ func (d *DB) Promote(ctx context.Context, wait time.Duration) (bool, error) {
 type Slot struct {
 	Name   string
 	Active bool
+	// Lost means the WAL the slot reserved was removed (past
+	// max_slot_wal_keep_size); its standby can no longer stream through it.
+	Lost bool
 }
 
 // Slots lists the physical replication slots.
@@ -198,7 +201,7 @@ func (d *DB) Slots(ctx context.Context) ([]Slot, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows, err := p.Querier().Query(ctx, "SELECT slot_name::text, active FROM pg_replication_slots WHERE slot_type = 'physical'")
+	rows, err := p.Querier().Query(ctx, "SELECT slot_name::text, active, COALESCE(wal_status = 'lost', false) FROM pg_replication_slots WHERE slot_type = 'physical'")
 	if err != nil {
 		return nil, err
 	}
@@ -206,7 +209,7 @@ func (d *DB) Slots(ctx context.Context) ([]Slot, error) {
 	var out []Slot
 	for rows.Next() {
 		var s Slot
-		if err := rows.Scan(&s.Name, &s.Active); err != nil {
+		if err := rows.Scan(&s.Name, &s.Active, &s.Lost); err != nil {
 			return nil, err
 		}
 		out = append(out, s)

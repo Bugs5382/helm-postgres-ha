@@ -93,6 +93,7 @@ func (a *Agent) follow(ctx context.Context, rec lease.Record, l local) {
 	a.setRole(ctx, kube.RoleReplica)
 	if l.st.Streaming() {
 		a.notStreaming = time.Time{}
+		a.lastRejoinNoop = false
 		return
 	}
 	if a.notStreaming.IsZero() {
@@ -128,6 +129,21 @@ func (a *Agent) rejoin(ctx context.Context, holder string) error {
 		return fmt.Errorf("waiting for %s to run as primary before rejoining", holder)
 	}
 	a.setRole(ctx, kube.RoleNone)
+	if a.lastRejoinNoop {
+		// Rewinding found nothing to change last time and the standby still
+		// could not stream: the WAL it needs is gone. Only a new copy helps.
+		a.lastRejoinNoop = false
+		a.log.Warn("still not streaming after a no-op rewind; moving the data aside and cloning again", golog.F("upstream", holder))
+		aside, err := a.node.MoveAside("fell-behind")
+		if err != nil {
+			return fmt.Errorf("move data aside: %w", err)
+		}
+		a.log.Warn("old data kept", golog.F("path", aside))
+		if err := a.clone(ctx, holder); err != nil {
+			return err
+		}
+		return a.node.SetSignal(RejoinMarker, false)
+	}
 	changed, err := a.node.Rewind(ctx, a.conninfo(holder, pg.RoleRewind, "postgres"))
 	if err != nil {
 		a.m.Rewinds.WithLabelValues("failed").Inc()
@@ -145,6 +161,7 @@ func (a *Agent) rejoin(ctx context.Context, holder string) error {
 		if changed {
 			outcome = "rewound"
 		}
+		a.lastRejoinNoop = !changed
 		a.m.Rewinds.WithLabelValues(outcome).Inc()
 		a.log.Info("rewind finished", golog.F("outcome", outcome), golog.F("upstream", holder))
 	}
