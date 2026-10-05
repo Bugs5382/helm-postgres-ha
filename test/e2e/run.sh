@@ -61,6 +61,24 @@ reach client $R-pgbouncer.$NS.svc 5432 || fail "the allowed client cannot reach 
 if reach client "$P.$R-headless.$NS.svc" 8009; then fail "an application client reached the peer API"; fi
 $K delete pod outsider --wait=false >/dev/null
 
+log "postmaster crash: kill -9 under a WAL backlog; the agent restarts it, the kubelet does not"
+P=$(primary)
+RESTARTS=$($K get pod "$P" -o jsonpath='{.status.containerStatuses[0].restartCount}')
+app "create table if not exists crash (id bigserial primary key, pad text)" >/dev/null
+# About 200 MB of WAL since the last checkpoint, so crash recovery has work.
+# Uncapped: this insert can take longer than the 30s bound on other calls.
+kubectl -n "$NS" exec "$P" -c postgres -- psql -h /var/run/postgresql -U postgres -d app -XAtq -c "checkpoint" -c "insert into crash (pad) select repeat('x', 1000) from generate_series(1, 150000)" >/dev/null
+app_write before-crash || fail "write before the crash failed"
+# shellcheck disable=SC2016 # expands inside the container
+$K exec "$P" -c postgres -- sh -c 'kill -9 "$(head -1 "$PGDATA/postmaster.pid")"'
+back() { local p; p=$(primary); [ -n "$p" ] && read_write "$p"; }
+wait_for 180 back || fail "no primary after the postmaster was killed"
+wait_for 60 app_write after-crash || fail "writes did not resume after the crash"
+[ "$($K get pod "$P" -o jsonpath='{.status.containerStatuses[0].restartCount}')" = "$RESTARTS" ] || fail "the kubelet restarted $P's container"
+wait_for 180 all_streaming || fail "the cluster did not settle after the crash"
+has_row "$(primary)" before-crash || fail "a committed row was lost in the crash"
+log "  $(primary) is primary; $P's container was not restarted"
+
 log "unplanned failover: freeze the primary's node"
 OLD=$P
 NODE=$($K get pod "$OLD" -o jsonpath='{.spec.nodeName}')
