@@ -69,6 +69,8 @@ type fakeNode struct {
 	conf       map[string]string
 	stops      []pg.StopMode
 	starts     int
+	// walSwitches counts pg_switch_wal calls.
+	walSwitches int
 	// archiveUsed reports that the cluster's WAL-G prefix already holds
 	// backups or WAL; archiveErr fails the check.
 	archiveUsed bool
@@ -136,6 +138,11 @@ func (f *fakeNode) Start() error {
 }
 func (f *fakeNode) Running() bool     { defer f.lock()(); return f.running }
 func (f *fakeNode) LastFatal() string { defer f.lock()(); return f.lastFatal }
+func (f *fakeNode) SwitchWAL(context.Context) error {
+	defer f.lock()()
+	f.walSwitches++
+	return nil
+}
 func (f *fakeNode) ArchiveUsed(context.Context) (bool, error) {
 	defer f.lock()()
 	return f.archiveUsed, f.archiveErr
@@ -1172,5 +1179,57 @@ func TestArchiveCheckFailureIsRetriedNotIgnored(t *testing.T) {
 	h.tick()
 	if err := h.a.WaitTask(); errs.Code(err) != errs.Bootstrap || h.node.initdbs != 0 {
 		t.Fatalf("err=%v initdbs=%d", err, h.node.initdbs)
+	}
+}
+
+// --- a standby's base backup is archived at once ---
+
+// fakeBackups is a backup scheduler whose last success the test sets.
+type fakeBackups struct {
+	mu   sync.Mutex
+	last time.Time
+}
+
+func (b *fakeBackups) Tick(context.Context, BackupRole) {}
+func (b *fakeBackups) RequestNow()                      {}
+func (b *fakeBackups) LastSuccess() time.Time {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.last
+}
+func (b *fakeBackups) set(t time.Time) { b.mu.Lock(); b.last = t; b.mu.Unlock() }
+
+func TestPrimarySwitchesWALOnceAfterEachNewBackup(t *testing.T) {
+	bk := &fakeBackups{last: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+	h := primaryHarness(t)
+	h.a.bk = bk
+	h.tick() // first look at the Lease: no switch
+	if h.node.walSwitches != 0 {
+		t.Fatalf("switched WAL on the first look: %d", h.node.walSwitches)
+	}
+	bk.set(bk.LastSuccess().Add(time.Hour))
+	h.tick()
+	h.tick()
+	if h.node.walSwitches != 1 {
+		t.Fatalf("WAL switches after one new backup = %d, want 1", h.node.walSwitches)
+	}
+	bk.set(bk.LastSuccess().Add(time.Hour))
+	h.tick()
+	if h.node.walSwitches != 2 {
+		t.Fatalf("WAL switches after a second backup = %d, want 2", h.node.walSwitches)
+	}
+}
+
+func TestStandbyNeverSwitchesWAL(t *testing.T) {
+	bk := &fakeBackups{last: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+	h := newHarness(t, "pg-1", "pg-0", map[string]string{lease.SystemID: "100"})
+	standbyNode(h)
+	h.a.bk = bk
+	h.peers.set("pg-0", primaryPeer())
+	h.tick()
+	bk.set(bk.LastSuccess().Add(time.Hour))
+	h.tick()
+	if h.node.walSwitches != 0 {
+		t.Fatalf("a standby switched WAL %d times", h.node.walSwitches)
 	}
 }

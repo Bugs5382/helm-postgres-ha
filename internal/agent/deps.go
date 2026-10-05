@@ -58,6 +58,8 @@ type Node interface {
 	Ping(ctx context.Context) error
 	Status(ctx context.Context) (pg.Status, error)
 	Promote(ctx context.Context, wait time.Duration) (bool, error)
+	// SwitchWAL closes the current WAL segment so it is archived now.
+	SwitchWAL(ctx context.Context) error
 	Slots(ctx context.Context) ([]pg.Slot, error)
 	CreateSlot(ctx context.Context, name string) error
 	DropSlot(ctx context.Context, name string) error

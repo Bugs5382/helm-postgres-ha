@@ -49,6 +49,16 @@ BY=$($K get lease pg-backup -o jsonpath='{.metadata.annotations.postgres-ha/last
 [ "$BY" != "$P" ] || fail "the backup ran on the primary, not a standby"
 log "  backup by standby $BY"
 
+log "the primary archives the standby backup's last WAL segment at once"
+# The segment holding the backup's end must be fetchable from the archive;
+# that is what a restore needs. Without the primary's WAL switch it waits for
+# archive_timeout (300s). A backup ending on a segment boundary needs nothing.
+FIN=$($K exec "$P" -c postgres -- /pgha/bin/wal-g backup-list --detail --json 2>/dev/null | jq -r 'max_by(.start_time).finish_lsn')
+SEG=$(sql "$P" "select pg_walfile_name('0/0'::pg_lsn + $FIN)")
+log "  backup ends at $(sql "$P" "select '0/0'::pg_lsn + $FIN"), in segment $SEG"
+seg_archived() { $K exec "$P" -c postgres -- /pgha/bin/wal-g wal-fetch "$SEG" /tmp/seg-check >/dev/null 2>&1; }
+wait_for 60 seg_archived || fail "segment $SEG with the backup's end was not archived (archive_timeout is 300s)"
+
 log "restore check: the scheduled job restores the latest backup and records the result"
 $K delete job verify-now --ignore-not-found >/dev/null
 $K create job verify-now --from=cronjob/pg-backup-verify >/dev/null

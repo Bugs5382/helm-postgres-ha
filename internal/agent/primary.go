@@ -213,6 +213,7 @@ func (a *Agent) primaryDuties(ctx context.Context, rec lease.Record, l local) {
 	}
 	a.setRole(ctx, kube.RolePrimary)
 	a.updateSync(ctx)
+	a.archiveAfterBackup(ctx)
 	if first || a.now().Sub(a.lastDuty) >= dutyEvery {
 		a.lastDuty = a.now()
 		dctx, cancel := context.WithTimeout(ctx, 2*a.cfg.PeerTimeout)
@@ -557,4 +558,30 @@ func (a *Agent) Shutdown(ctx context.Context) {
 	}
 	_ = a.node.Stop(ctx, pg.StopFast)
 	a.holdingRW.Store(false)
+}
+
+// archiveAfterBackup switches WAL once after each new successful base backup.
+// A backup taken on a standby ends inside the primary's current WAL segment,
+// and is not restorable until that segment is archived; without a switch that
+// waits for archive_timeout. The first look only records the current backup.
+func (a *Agent) archiveAfterBackup(ctx context.Context) {
+	if a.bk == nil {
+		return
+	}
+	last := a.bk.LastSuccess()
+	if last.IsZero() || !last.After(a.seenBackup) {
+		return
+	}
+	first := a.seenBackup.IsZero()
+	a.seenBackup = last
+	if first {
+		return
+	}
+	sctx, cancel := context.WithTimeout(ctx, 2*a.cfg.PeerTimeout)
+	defer cancel()
+	if err := a.node.SwitchWAL(sctx); err != nil {
+		a.log.Warn("cannot switch WAL after a base backup; it is archived at archive_timeout", golog.F("error", err.Error()))
+		return
+	}
+	a.log.Info("switched WAL so the new base backup's last segment is archived", golog.F("backup_at", last.UTC().Format(time.RFC3339)))
 }
