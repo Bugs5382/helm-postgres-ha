@@ -252,3 +252,41 @@ func TestMaterialRequiresFiles(t *testing.T) {
 		t.Fatal("missing material accepted")
 	}
 }
+
+// TestFetchAllIsBoundedByOneTimeout: two members that accept a connection and
+// never answer (a hung process, a blackholed node) must not stretch a round
+// past one peer timeout, however many there are.
+func TestFetchAllIsBoundedByOneTimeout(t *testing.T) {
+	a := newCA(t)
+	cliDir := t.TempDir()
+	a.issue(t, cliDir, 3, "*.pg-headless.db.svc")
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ln.Close() }()
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			// Accept and say nothing.
+			defer func() { _ = c.Close() }()
+		}
+	}()
+	timeout := 500 * time.Millisecond
+	c := NewClient(material(t, cliDir), topo, "8009", timeout)
+	c.redirect = func(string) string { return ln.Addr().String() }
+	start := time.Now()
+	res := c.FetchAll(context.Background(), []string{"pg-0", "pg-1", "pg-2"})
+	elapsed := time.Since(start)
+	for m, r := range res {
+		if r.Err == nil {
+			t.Errorf("%s answered", m)
+		}
+	}
+	if elapsed > timeout+300*time.Millisecond {
+		t.Fatalf("a round with three hung members took %s, want about one %s timeout", elapsed, timeout)
+	}
+}
