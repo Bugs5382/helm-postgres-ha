@@ -37,6 +37,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/fake"
+	k8stesting "k8s.io/client-go/testing"
 
 	"github.com/Bugs5382/helm-postgres-ha/internal/cluster"
 	"github.com/Bugs5382/helm-postgres-ha/internal/config"
@@ -71,6 +72,9 @@ type fakeNode struct {
 	roles      int
 	slots      map[string]bool
 	reps       []pg.Replica
+	// onStop runs inside Stop while the server is still up, to simulate a
+	// slow shutdown.
+	onStop func()
 }
 
 func newNode() *fakeNode {
@@ -113,6 +117,9 @@ func (f *fakeNode) Start() error {
 }
 func (f *fakeNode) Running() bool { defer f.lock()(); return f.running }
 func (f *fakeNode) Stop(_ context.Context, m pg.StopMode) error {
+	if f.onStop != nil {
+		f.onStop()
+	}
 	defer f.lock()()
 	if f.running {
 		f.stops = append(f.stops, m)
@@ -325,6 +332,15 @@ func (h *harness) lease() lease.Record {
 		r.Holder = *l.Spec.HolderIdentity
 	}
 	return r
+}
+
+func (h *harness) renewTime() time.Time {
+	h.t.Helper()
+	l, err := h.cs.CoordinationV1().Leases("db").Get(context.Background(), "pg", metav1.GetOptions{})
+	if err != nil || l.Spec.RenewTime == nil {
+		return time.Time{}
+	}
+	return l.Spec.RenewTime.Time
 }
 
 func (h *harness) roleLabel(pod string) string {
@@ -765,5 +781,55 @@ func TestNewPrimaryResetsThePoolersOncePerTerm(t *testing.T) {
 	h.a.WaitBackground()
 	if fp.resets != 1 {
 		t.Fatalf("poolers reset %d times, want 1", fp.resets)
+	}
+}
+
+func TestShutdownKeepsRenewingThroughASlowStop(t *testing.T) {
+	h := primaryHarness(t)
+	h.a.cfg.RetryPeriod = 100 * time.Millisecond
+	h.peers.set("pg-2", streamingStandby(100))
+	before := h.renewTime()
+	var during time.Time
+	h.node.onStop = func() {
+		// The fast shutdown takes longer than the lease duration.
+		h.clock.add(20 * time.Second)
+		time.Sleep(400 * time.Millisecond)
+		during = h.renewTime()
+	}
+	h.a.Shutdown(context.Background())
+	if !during.After(before) {
+		t.Fatalf("the lease was not renewed during the stop (before %s, during %s)", before, during)
+	}
+	if r := h.lease(); r.Holder != "" || r.Ann(lease.Successor) != "pg-2" {
+		t.Fatalf("after shutdown: %+v", r)
+	}
+}
+
+func TestShutdownFencesWhenRenewalsFailDuringTheStop(t *testing.T) {
+	h := primaryHarness(t)
+	h.a.cfg.RetryPeriod = 100 * time.Millisecond
+	h.peers.set("pg-2", streamingStandby(100))
+	stops := 0
+	h.node.onStop = func() {
+		stops++
+		if stops > 1 {
+			return
+		}
+		// The API goes away and the stop hangs past the renew deadline.
+		h.cs.PrependReactor("update", "leases", func(k8stesting.Action) (bool, runtime.Object, error) {
+			return true, nil, errors.New("api server unreachable")
+		})
+		h.clock.add(11 * time.Second)
+		time.Sleep(400 * time.Millisecond)
+	}
+	h.a.Shutdown(context.Background())
+	immediate := false
+	for _, m := range h.node.stops {
+		if m == pg.StopImmediate {
+			immediate = true
+		}
+	}
+	if !immediate {
+		t.Fatalf("not fenced while the stop hung without renewals: stops=%v", h.node.stops)
 	}
 }
