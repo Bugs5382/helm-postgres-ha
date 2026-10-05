@@ -12,13 +12,13 @@ name: Checks
 #     release and on manual dispatch.
 # Every tool is a pinned release checked against its published SHA-256.
 #
-# Pull requests skip drafts. Labelling a PR reruns it, so adding e2e starts
-# the suites; the decision only depends on the labels and the diff, so a
-# rerun for any other label cannot turn a failed run green.
+# Pull requests skip drafts. The e2e label is read on the next push (or
+# ready for review). Label events do not trigger a run: one raised while the
+# PR was a draft cancels the real run and skips every job.
 on:
   pull_request:
     branches: [main]
-    types: [opened, synchronize, reopened, ready_for_review, labeled]
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
   schedule:

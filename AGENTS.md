@@ -74,8 +74,9 @@ server only) and the transport package is `internal/server` plus `internal/peer`
     `internal/`, `deployments/`, `test/e2e/`, the `Dockerfile`, `go.mod`/`go.sum` or the
     workflow itself. Otherwise it is skipped, which counts as passing.
   - It always runs on pushes to `main`, nightly, on a published release and on manual dispatch.
-  - Add the `e2e` label to force the suites on any PR. Superseded runs are cancelled, and the Go
-    module cache and the kind node image are cached between runs.
+  - Add the `e2e` label to force the suites on any PR; it takes effect on the next push (label
+    events do not start a run). Superseded runs are cancelled, and the Go module cache and the
+    kind node image are cached between runs.
 - License headers: `task license` (golic, Go sources).
 
 ## Releasing
