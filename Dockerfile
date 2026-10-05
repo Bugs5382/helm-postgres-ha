@@ -14,6 +14,12 @@ WORKDIR /src
 # The PostgreSQL build without the cgo-only compressors (brotli, lzo,
 # libsodium), so the binary is static and runs in any image.
 ENV CGO_ENABLED=0 GOEXPERIMENT=jsonv2 GOFLAGS=-mod=mod
+# Dependencies with published fixes newer than the WAL-G release pins.
+# scripts/ci/vuln-gate.sh fails CI when the built binary has a fixable
+# finding, so drop an entry here once a WAL-G release includes it.
+ARG WALG_BUMPS="google.golang.org/grpc@v1.83.2 golang.org/x/crypto@v0.56.0 go.opentelemetry.io/otel/sdk@v1.45.0"
+# hadolint ignore=SC2086
+RUN go get ${WALG_BUMPS} && go mod tidy
 RUN go build -trimpath \
       -ldflags "-s -w -X github.com/wal-g/wal-g/cmd/pg.walgVersion=${WALG_VERSION} -X github.com/wal-g/wal-g/cmd/pg.gitRevision=${WALG_COMMIT}" \
       -o /out/wal-g ./main/pg
