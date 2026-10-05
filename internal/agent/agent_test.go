@@ -71,6 +71,9 @@ type fakeNode struct {
 	asides     int
 	roles      int
 	slots      map[string]bool
+	lostSlots  map[string]bool
+	dropped    []string
+	rewindNoop bool
 	reps       []pg.Replica
 	// onStop runs inside Stop while the server is still up, to simulate a
 	// slow shutdown.
@@ -159,7 +162,7 @@ func (f *fakeNode) Slots(context.Context) ([]pg.Slot, error) {
 	defer f.lock()()
 	var out []pg.Slot
 	for n := range f.slots {
-		out = append(out, pg.Slot{Name: n})
+		out = append(out, pg.Slot{Name: n, Lost: f.lostSlots[n]})
 	}
 	return out, nil
 }
@@ -171,6 +174,8 @@ func (f *fakeNode) CreateSlot(_ context.Context, n string) error {
 func (f *fakeNode) DropSlot(_ context.Context, n string) error {
 	defer f.lock()()
 	delete(f.slots, n)
+	delete(f.lostSlots, n)
+	f.dropped = append(f.dropped, n)
 	return nil
 }
 func (f *fakeNode) Archiver(context.Context) (pg.Archiver, error) { return pg.Archiver{}, nil }
@@ -204,7 +209,7 @@ func (f *fakeNode) FetchBackup(context.Context, string, string) error {
 func (f *fakeNode) Rewind(context.Context, string) (bool, error) {
 	defer f.lock()()
 	f.rewinds++
-	return true, f.rewindErr
+	return !f.rewindNoop, f.rewindErr
 }
 func (f *fakeNode) MoveAside(string) (string, error) {
 	defer f.lock()()
@@ -332,6 +337,24 @@ func (h *harness) lease() lease.Record {
 		r.Holder = *l.Spec.HolderIdentity
 	}
 	return r
+}
+
+// holderRenews moves the clock on while the current holder keeps renewing.
+func (h *harness) holderRenews(d time.Duration) {
+	h.t.Helper()
+	for step := 5 * time.Second; d > 0; d -= step {
+		h.clock.add(min(step, d))
+		l, err := h.cs.CoordinationV1().Leases("db").Get(context.Background(), "pg", metav1.GetOptions{})
+		if err != nil {
+			h.t.Fatal(err)
+		}
+		now := metav1.NewMicroTime(h.clock.now())
+		l.Spec.RenewTime = &now
+		if _, err := h.cs.CoordinationV1().Leases("db").Update(context.Background(), l, metav1.UpdateOptions{}); err != nil {
+			h.t.Fatal(err)
+		}
+		h.tick()
+	}
 }
 
 func (h *harness) renewTime() time.Time {
@@ -831,5 +854,47 @@ func TestShutdownFencesWhenRenewalsFailDuringTheStop(t *testing.T) {
 	}
 	if !immediate {
 		t.Fatalf("not fenced while the stop hung without renewals: stops=%v", h.node.stops)
+	}
+}
+
+// --- standbys that fell behind the retained WAL ---
+
+func TestPrimaryRecreatesALostSlot(t *testing.T) {
+	h := primaryHarness(t)
+	h.node.lostSlots = map[string]bool{"pg_1": true}
+	h.node.slots["pg_1"] = true
+	h.clock.add(dutyEvery)
+	h.tick()
+	if len(h.node.dropped) != 1 || h.node.dropped[0] != "pg_1" || !h.node.slots["pg_1"] {
+		t.Fatalf("lost slot not recreated: dropped=%v slots=%v", h.node.dropped, h.node.slots)
+	}
+	h.clock.add(dutyEvery)
+	h.tick()
+	if len(h.node.dropped) != 1 {
+		t.Fatalf("a healthy slot was dropped: %v", h.node.dropped)
+	}
+}
+
+func TestStuckStandbyRecloneAfterANoopRewind(t *testing.T) {
+	h := newHarness(t, "pg-1", "pg-0", map[string]string{lease.SystemID: "100"})
+	standbyNode(h)
+	h.node.rewindNoop = true
+	h.peers.set("pg-0", primaryPeer())
+	stuck := func() {
+		h.tick()                                            // running, not streaming
+		h.holderRenews(h.a.cfg.RejoinTimeout + time.Second) // stuck: stops for a rejoin
+		h.tick()                                            // starts the rejoin
+		if err := h.a.WaitTask(); err != nil {
+			t.Fatal(err)
+		}
+		h.tick() // starts again as a standby
+	}
+	stuck()
+	if h.node.rewinds != 1 || h.node.clones != 0 {
+		t.Fatalf("first rejoin: rewinds=%d clones=%d", h.node.rewinds, h.node.clones)
+	}
+	stuck()
+	if h.node.clones != 1 || h.node.asides != 1 {
+		t.Fatalf("a standby still stuck after a no-op rewind was not re-cloned: rewinds=%d clones=%d asides=%d", h.node.rewinds, h.node.clones, h.node.asides)
 	}
 }

@@ -123,6 +123,9 @@ type Agent struct {
 	split        bool
 	lastDisk     time.Time
 	syncNames    string
+	// lastRejoinNoop is true when the last rejoin found nothing to rewind;
+	// being stuck again after that means WAL is missing, not diverged.
+	lastRejoinNoop bool
 
 	// Background work that must not hold up the loop.
 	bg         sync.WaitGroup

@@ -287,6 +287,17 @@ func (a *Agent) ensureSlots(ctx context.Context) {
 	}
 	have := map[string]bool{}
 	for _, s := range slots {
+		if want[s.Name] && s.Lost && !s.Active {
+			// Its standby fell behind the retained WAL. A fresh slot reserves
+			// WAL again from now; the standby is re-cloned on its side.
+			if err := a.node.DropSlot(ctx, s.Name); err != nil {
+				a.log.Warn("cannot drop a lost replication slot", golog.F("slot", s.Name), golog.F("error", err.Error()))
+				have[s.Name] = true
+			} else {
+				a.log.Warn("dropped a replication slot whose WAL was removed", golog.F("slot", s.Name))
+			}
+			continue
+		}
 		have[s.Name] = true
 		if !want[s.Name] && strings.HasPrefix(s.Name, a.topo.SlotPrefix()) && !s.Active {
 			if err := a.node.DropSlot(ctx, s.Name); err != nil {
