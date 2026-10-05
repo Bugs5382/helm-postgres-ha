@@ -16,5 +16,6 @@ The agent logs every coded error with a `code` field and counts it in `pgha_erro
 | 1110 | backup | a WAL-G base backup or its retention run failed |
 | 1111 | fencing | the primary could not renew the Lease in time and stopped PostgreSQL so it cannot accept writes |
 | 1112 | roles | creating or updating roles and databases on the primary failed; it is retried |
+| 1114 | bootstrap | the backup storage prefix already holds another cluster's backups or WAL; a new cluster refuses to archive into it until the prefix is changed or emptied |
 
 The table is generated from `internal/errs`; a unit test fails when the two drift apart.

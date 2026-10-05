@@ -67,18 +67,24 @@ type fakeNode struct {
 	conf       map[string]string
 	stops      []pg.StopMode
 	starts     int
-	reloads    int
-	promoteOK  bool
-	rewindErr  error
-	rewinds    int
-	clones     int
-	asides     int
-	roles      int
-	slots      map[string]bool
-	lostSlots  map[string]bool
-	dropped    []string
-	rewindNoop bool
-	reps       []pg.Replica
+	// archiveUsed reports that the cluster's WAL-G prefix already holds
+	// backups or WAL; archiveErr fails the check.
+	archiveUsed bool
+	archiveErr  error
+	initdbs     int
+	fetches     int
+	reloads     int
+	promoteOK   bool
+	rewindErr   error
+	rewinds     int
+	clones      int
+	asides      int
+	roles       int
+	slots       map[string]bool
+	lostSlots   map[string]bool
+	dropped     []string
+	rewindNoop  bool
+	reps        []pg.Replica
 	// onStop runs inside Stop while the server is still up, to simulate a
 	// slow shutdown.
 	onStop func()
@@ -123,6 +129,10 @@ func (f *fakeNode) Start() error {
 	return nil
 }
 func (f *fakeNode) Running() bool { defer f.lock()(); return f.running }
+func (f *fakeNode) ArchiveUsed(context.Context) (bool, error) {
+	defer f.lock()()
+	return f.archiveUsed, f.archiveErr
+}
 func (f *fakeNode) Stop(_ context.Context, m pg.StopMode) error {
 	if f.onStop != nil {
 		f.onStop()
@@ -200,6 +210,7 @@ func (f *fakeNode) CloseConns() {}
 func (f *fakeNode) Initdb(context.Context) error {
 	defer f.lock()()
 	f.hasData = true
+	f.initdbs++
 	return nil
 }
 func (f *fakeNode) Clone(context.Context, string) error {
@@ -211,6 +222,7 @@ func (f *fakeNode) Clone(context.Context, string) error {
 func (f *fakeNode) FetchBackup(context.Context, string, string) error {
 	defer f.lock()()
 	f.hasData = true
+	f.fetches++
 	return nil
 }
 func (f *fakeNode) Rewind(context.Context, string) (bool, error) {
@@ -1005,5 +1017,68 @@ func TestStartingServerWithoutStandbySignalStillCountsAsReadWrite(t *testing.T) 
 	h.tick()
 	if s := h.a.Status(); s.InRecovery {
 		t.Fatalf("a server starting without standby.signal may come up read-write and must not read as in recovery: %+v", s)
+	}
+}
+
+// --- a new cluster must not archive into another cluster's prefix ---
+
+// bootstrapper is pg-0 about to create the cluster's first data, with
+// backups on.
+func bootstrapper(t *testing.T, mode, prefix string) *harness {
+	t.Helper()
+	h := newHarness(t, "pg-0", "", nil)
+	h.a.cfg.Backup.Enabled = true
+	h.a.cfg.Bootstrap = config.Bootstrap{Mode: mode, Restore: config.Restore{Prefix: prefix, Backup: "LATEST"}}
+	empty := peer.Result{Status: peer.Status{Role: peer.RoleStopped}}
+	h.peers.set("pg-1", empty)
+	h.peers.set("pg-2", empty)
+	return h
+}
+
+func TestInitdbRefusesAnArchivePrefixThatHoldsData(t *testing.T) {
+	h := bootstrapper(t, config.BootstrapInitdb, "")
+	h.node.archiveUsed = true
+	h.tick()
+	err := h.a.WaitTask()
+	if h.node.initdbs != 0 || h.node.hasData {
+		t.Fatal("initdb ran against a prefix that holds another cluster's data")
+	}
+	if errs.Code(err) != errs.ArchiveInUse || !strings.Contains(err.Error(), "already holds") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestRestoreFromAnotherPrefixRefusesAUsedArchivePrefix(t *testing.T) {
+	h := bootstrapper(t, config.BootstrapRestore, "s3://bucket/source")
+	h.node.archiveUsed = true
+	h.tick()
+	if err := h.a.WaitTask(); errs.Code(err) != errs.ArchiveInUse || h.node.fetches != 0 {
+		t.Fatalf("err=%v fetches=%d", err, h.node.fetches)
+	}
+}
+
+func TestRestoreFromItsOwnPrefixIsAllowed(t *testing.T) {
+	h := bootstrapper(t, config.BootstrapRestore, "")
+	h.node.archiveUsed = true
+	h.tick()
+	if err := h.a.WaitTask(); err != nil || h.node.fetches != 1 {
+		t.Fatalf("err=%v fetches=%d", err, h.node.fetches)
+	}
+}
+
+func TestBootstrapIntoAnEmptyArchivePrefixProceeds(t *testing.T) {
+	h := bootstrapper(t, config.BootstrapInitdb, "")
+	h.tick()
+	if err := h.a.WaitTask(); err != nil || h.node.initdbs != 1 {
+		t.Fatalf("err=%v initdbs=%d", err, h.node.initdbs)
+	}
+}
+
+func TestArchiveCheckFailureIsRetriedNotIgnored(t *testing.T) {
+	h := bootstrapper(t, config.BootstrapInitdb, "")
+	h.node.archiveErr = errors.New("storage unreachable")
+	h.tick()
+	if err := h.a.WaitTask(); errs.Code(err) != errs.Bootstrap || h.node.initdbs != 0 {
+		t.Fatalf("err=%v initdbs=%d", err, h.node.initdbs)
 	}
 }
