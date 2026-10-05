@@ -51,7 +51,7 @@ data:
     log_checkpoints = on
     log_lock_waits = on
     log_min_duration_statement = '5s'
-    {{- range $k, $v := .Values.postgresql.parameters }}
+    {{- range $k, $v := include "pgha.parameters" . | fromJson }}
     {{ $k }} = '{{ $v | toString | replace "'" "''" }}'
     {{- end }}
     # The agent's own settings (who to follow, how to restore) come last.
