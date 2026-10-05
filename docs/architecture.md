@@ -34,7 +34,10 @@ cannot repoint clients.
    holder, for example a former primary that comes back on its old volume.
 5. **Election.** When the Lease has no live holder, a standby takes it only if:
    - a quorum of members (a majority; one for a two-member cluster) answered the peer API;
-   - no member still runs read-write or still streams from a primary;
+   - no member still runs read-write or still streams from a primary. A server that runs but does
+     not answer queries yet counts as read-write unless it was started with `standby.signal` or
+     `recovery.signal`: those stay in recovery until promoted, so a standby that is starting, or
+     failing to start, never blocks a failover;
    - it is the most complete eligible standby: highest timeline, then most WAL received, then a
      pod on a newer StatefulSet revision, then the lowest ordinal;
    - it is within `agent.maxLagOnFailover` of the last position the primary recorded.
