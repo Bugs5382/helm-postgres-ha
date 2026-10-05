@@ -69,6 +69,12 @@ type fakeNode struct {
 	conf       map[string]string
 	stops      []pg.StopMode
 	starts     int
+	// sourceBackups lists the restore source's backups; sourceErr fails
+	// the listing. fetchedFrom and fetchedName record the last fetch.
+	sourceBackups []string
+	sourceErr     error
+	fetchedFrom   pg.Source
+	fetchedName   string
 	// walSwitches counts pg_switch_wal calls.
 	walSwitches int
 	// archiveUsed reports that the cluster's WAL-G prefix already holds
@@ -138,6 +144,10 @@ func (f *fakeNode) Start() error {
 }
 func (f *fakeNode) Running() bool     { defer f.lock()(); return f.running }
 func (f *fakeNode) LastFatal() string { defer f.lock()(); return f.lastFatal }
+func (f *fakeNode) SourceBackups(context.Context, pg.Source) ([]string, error) {
+	defer f.lock()()
+	return f.sourceBackups, f.sourceErr
+}
 func (f *fakeNode) SwitchWAL(context.Context) error {
 	defer f.lock()()
 	f.walSwitches++
@@ -233,8 +243,9 @@ func (f *fakeNode) Clone(context.Context, string) error {
 	f.clones++
 	return nil
 }
-func (f *fakeNode) FetchBackup(context.Context, string, string) error {
+func (f *fakeNode) FetchBackup(_ context.Context, src pg.Source, name string) error {
 	defer f.lock()()
+	f.fetchedFrom, f.fetchedName = src, name
 	f.hasData = true
 	f.fetches++
 	return nil
@@ -1128,6 +1139,7 @@ func bootstrapper(t *testing.T, mode, prefix string) *harness {
 	h := newHarness(t, "pg-0", "", nil)
 	h.a.cfg.Backup.Enabled = true
 	h.a.cfg.Bootstrap = config.Bootstrap{Mode: mode, Restore: config.Restore{Prefix: prefix, Backup: "LATEST"}}
+	h.node.sourceBackups = []string{"base_000000010000000000000003"}
 	empty := peer.Result{Status: peer.Status{Role: peer.RoleStopped}}
 	h.peers.set("pg-1", empty)
 	h.peers.set("pg-2", empty)
@@ -1231,5 +1243,80 @@ func TestStandbyNeverSwitchesWAL(t *testing.T) {
 	h.tick()
 	if h.node.walSwitches != 0 {
 		t.Fatalf("a standby switched WAL %d times", h.node.walSwitches)
+	}
+}
+
+// --- restoring from a chosen source ---
+
+// restoreFrom is pg-0 about to restore the cluster's first data from r.
+func restoreFrom(t *testing.T, r config.Restore) *harness {
+	t.Helper()
+	h := newHarness(t, "pg-0", "", nil)
+	h.a.cfg.Bootstrap = config.Bootstrap{Mode: config.BootstrapRestore, Restore: r}
+	empty := peer.Result{Status: peer.Status{Role: peer.RoleStopped}}
+	h.peers.set("pg-1", empty)
+	h.peers.set("pg-2", empty)
+	h.node.sourceBackups = []string{"base_000000010000000000000003", "base_000000010000000000000006"}
+	return h
+}
+
+func TestRestoreFromAFileSourceUsesItForBackupAndWAL(t *testing.T) {
+	r := config.Restore{Backup: "base_000000010000000000000003", Prefix: "/restore-source/site-a", Storage: pg.StorageFile, TargetName: "before-upgrade"}
+	h := restoreFrom(t, r)
+	h.tick()
+	if err := h.a.WaitTask(); err != nil {
+		t.Fatal(err)
+	}
+	want := pg.Source{Storage: pg.StorageFile, Prefix: "/restore-source/site-a"}
+	if h.node.fetchedFrom != want || h.node.fetchedName != r.Backup {
+		t.Fatalf("fetched %s from %+v", h.node.fetchedName, h.node.fetchedFrom)
+	}
+	rc := h.node.conf["restore_command"]
+	if !strings.HasPrefix(rc, want.ShellPrefix()) || !strings.Contains(rc, "wal-fetch") {
+		t.Fatalf("restore_command = %q", rc)
+	}
+	if h.node.conf["recovery_target_name"] != "before-upgrade" {
+		t.Fatalf("recovery target = %q", h.node.conf["recovery_target_name"])
+	}
+}
+
+func TestRestoreFromAnotherPrefixDefaultsToS3(t *testing.T) {
+	h := restoreFrom(t, config.Restore{Backup: "LATEST", Prefix: "s3://bucket/pg"})
+	h.tick()
+	if err := h.a.WaitTask(); err != nil {
+		t.Fatal(err)
+	}
+	if h.node.fetchedFrom != (pg.Source{Storage: pg.StorageS3, Prefix: "s3://bucket/pg"}) {
+		t.Fatalf("fetched from %+v", h.node.fetchedFrom)
+	}
+}
+
+func TestRestoreRefusesANamedBackupTheSourceDoesNotHold(t *testing.T) {
+	h := restoreFrom(t, config.Restore{Backup: "base_000000010000000000000009", Prefix: "/restore-source/site-a", Storage: pg.StorageFile})
+	h.tick()
+	err := h.a.WaitTask()
+	if errs.Code(err) != errs.Bootstrap || !strings.Contains(err.Error(), "base_000000010000000000000009 is not in the restore source") || h.node.fetchedName != "" {
+		t.Fatalf("err=%v fetched=%q", err, h.node.fetchedName)
+	}
+	if !strings.Contains(err.Error(), "base_000000010000000000000006") {
+		t.Fatalf("the error does not list what the source holds: %v", err)
+	}
+}
+
+func TestRestoreRefusesASourceWithNoBackups(t *testing.T) {
+	h := restoreFrom(t, config.Restore{Backup: "LATEST", Prefix: "/restore-source/empty", Storage: pg.StorageFile})
+	h.node.sourceBackups = nil
+	h.tick()
+	if err := h.a.WaitTask(); errs.Code(err) != errs.Bootstrap || !strings.Contains(err.Error(), "holds no base backups") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestRestoreRefusesAnUnreachableSource(t *testing.T) {
+	h := restoreFrom(t, config.Restore{Backup: "LATEST", Prefix: "/restore-source/gone", Storage: pg.StorageFile})
+	h.node.sourceErr = errors.New("restore source /restore-source/gone is not a reachable directory")
+	h.tick()
+	if err := h.a.WaitTask(); errs.Code(err) != errs.Bootstrap || !strings.Contains(err.Error(), "not a reachable directory") || h.node.fetchedName != "" {
+		t.Fatalf("err=%v fetched=%q", err, h.node.fetchedName)
 	}
 }

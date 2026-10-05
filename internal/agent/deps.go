@@ -74,8 +74,10 @@ type Node interface {
 	// Clone copies a running primary into the data directory and marks it a
 	// standby.
 	Clone(ctx context.Context, conninfo string) error
-	// FetchBackup restores a base backup into the data directory.
-	FetchBackup(ctx context.Context, prefix, name string) error
+	// FetchBackup restores a base backup from src into the data directory.
+	FetchBackup(ctx context.Context, src pg.Source, name string) error
+	// SourceBackups lists the base backups in a restore source.
+	SourceBackups(ctx context.Context, src pg.Source) ([]string, error)
 	// ArchiveUsed reports whether the cluster's own WAL-G storage already
 	// holds base backups or WAL.
 	ArchiveUsed(ctx context.Context) (bool, error)

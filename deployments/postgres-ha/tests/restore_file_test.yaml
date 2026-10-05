@@ -1,0 +1,73 @@
+suite: restore from a file backend source
+templates: [statefulset.yaml, configmap.yaml]
+set:
+  postgresql.allowedCIDRs: ["10.244.0.0/16"]
+  bootstrap.mode: restore
+  bootstrap.restore.source: file
+  bootstrap.restore.backup: base_000000010000000000000003
+  bootstrap.restore.targetName: before-upgrade
+tests:
+  - it: mounts the source claim read-only and points the agent at its directory
+    template: statefulset.yaml
+    set:
+      bootstrap.restore.file.existingClaim: old-backups
+      bootstrap.restore.file.directory: site-a
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content: {name: restore-source, mountPath: /restore-source, readOnly: true}
+      - contains:
+          path: spec.template.spec.volumes
+          content: {name: restore-source, persistentVolumeClaim: {claimName: old-backups, readOnly: true}}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: PGHA_RESTORE_PREFIX, value: /restore-source/site-a}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: PGHA_RESTORE_STORAGE, value: file}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: PGHA_RESTORE_TARGET_NAME, value: before-upgrade}
+  - it: reads a directory on the cluster's own file backup volume without a claim
+    template: statefulset.yaml
+    set:
+      backup.enabled: true
+      backup.storage: file
+      bootstrap.restore.file.directory: old-cluster
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: PGHA_RESTORE_PREFIX, value: /backup/old-cluster}
+      - notContains:
+          path: spec.template.spec.volumes
+          content: {name: restore-source}
+          any: true
+  - it: refuses a file source with no volume to read
+    template: configmap.yaml
+    set:
+      bootstrap.restore.file.directory: site-a
+    asserts:
+      - failedTemplate:
+          errorPattern: bootstrap.restore.source file needs bootstrap.restore.file.existingClaim
+  - it: refuses a file source claim without a directory
+    template: configmap.yaml
+    set:
+      bootstrap.restore.file.existingClaim: old-backups
+    asserts:
+      - failedTemplate:
+          errorPattern: bootstrap.restore.file.directory is required
+  - it: keeps an S3 source as it was
+    template: statefulset.yaml
+    set:
+      bootstrap.restore.source: s3
+      bootstrap.restore.prefix: s3://bucket/pg
+      backup.enabled: true
+      backup.s3.prefix: s3://bucket/pgr
+      backup.s3.existingSecret: s3
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: PGHA_RESTORE_PREFIX, value: s3://bucket/pg}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: PGHA_RESTORE_STORAGE, value: s3}

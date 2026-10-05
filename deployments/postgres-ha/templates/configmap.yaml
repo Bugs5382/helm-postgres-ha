@@ -6,7 +6,11 @@
 {{- $s3 := and .Values.backup.enabled (eq .Values.backup.storage "s3") -}}
 {{- if and $s3 (not .Values.backup.s3.prefix) }}{{ fail "backup.s3.prefix is required when backup.enabled is true" }}{{ end }}
 {{- if and $s3 (not .Values.backup.s3.existingSecret) }}{{ fail "backup.s3.existingSecret is required when backup.enabled is true" }}{{ end }}
-{{- if and (eq .Values.bootstrap.mode "restore") (not (or .Values.bootstrap.restore.prefix .Values.backup.enabled)) }}{{ fail "bootstrap.mode restore needs bootstrap.restore.prefix or backup.enabled" }}{{ end }}
+{{- $rs := .Values.bootstrap.restore -}}
+{{- if and (eq .Values.bootstrap.mode "restore") (eq $rs.source "file") }}
+{{- if and (not $rs.file.existingClaim) (not (include "pgha.fileBackup" .)) }}{{ fail "bootstrap.restore.source file needs bootstrap.restore.file.existingClaim, or backup.storage file to read the cluster's own volume" }}{{ end }}
+{{- if and $rs.file.existingClaim (not $rs.file.directory) }}{{ fail "bootstrap.restore.file.directory is required with bootstrap.restore.file.existingClaim" }}{{ end }}
+{{- else if and (eq .Values.bootstrap.mode "restore") (not (or $rs.prefix .Values.backup.enabled)) }}{{ fail "bootstrap.mode restore needs bootstrap.restore.prefix or backup.enabled" }}{{ end }}
 {{- if and (not .Values.tls.certManager.enabled) (not .Values.tls.existingSecret) }}{{ fail "mutual TLS is required: enable tls.certManager or set tls.existingSecret" }}{{ end }}
 apiVersion: v1
 kind: ConfigMap

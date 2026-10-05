@@ -46,3 +46,28 @@
 {{- define "pgha.backupClaim" -}}
 {{- default (printf "%s-backup" (include "pgha.name" .)) .Values.backup.file.existingClaim -}}
 {{- end -}}
+
+{{/* restoreFile is true when a restore bootstrap reads a file source. */}}
+{{- define "pgha.restoreFile" -}}
+{{- $r := .Values.bootstrap.restore -}}
+{{- if and (eq .Values.bootstrap.mode "restore") (or (eq $r.source "file") (and (not $r.source) (not $r.prefix) (eq .Values.backup.storage "file") $r.file.directory)) }}true{{ end -}}
+{{- end -}}
+
+{{/* restoreStorage is the restore source's backend, as the agent reads it. */}}
+{{- define "pgha.restoreStorage" -}}
+{{- if include "pgha.restoreFile" . }}file{{ else if .Values.bootstrap.restore.prefix }}s3{{ end -}}
+{{- end -}}
+
+{{/* restorePrefix is the source the agent restores from: the S3 prefix, a
+     directory on the read-only source volume, or one on the cluster's own
+     backup volume. Empty means the cluster's own storage. */}}
+{{- define "pgha.restorePrefix" -}}
+{{- $r := .Values.bootstrap.restore -}}
+{{- if include "pgha.restoreFile" . -}}
+{{- if $r.file.existingClaim }}{{ printf "/restore-source/%s" $r.file.directory }}
+{{- else if $r.file.directory }}{{ printf "%s/%s" .Values.backup.file.mountPath $r.file.directory }}
+{{- end -}}
+{{- else -}}
+{{- $r.prefix -}}
+{{- end -}}
+{{- end -}}

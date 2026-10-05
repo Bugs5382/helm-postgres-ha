@@ -165,7 +165,9 @@ spec:
             - name: PGHA_RESTORE_BACKUP
               value: {{ .Values.bootstrap.restore.backup | quote }}
             - name: PGHA_RESTORE_PREFIX
-              value: {{ .Values.bootstrap.restore.prefix | quote }}
+              value: {{ include "pgha.restorePrefix" . | quote }}
+            - name: PGHA_RESTORE_STORAGE
+              value: {{ include "pgha.restoreStorage" . | quote }}
             - name: PGHA_RESTORE_TARGET_TIME
               value: {{ .Values.bootstrap.restore.targetTime | quote }}
             - name: PGHA_RESTORE_TARGET_LSN
@@ -261,6 +263,11 @@ spec:
             - name: backup
               mountPath: {{ .Values.backup.file.mountPath }}
             {{- end }}
+            {{- if and (include "pgha.restoreFile" .) .Values.bootstrap.restore.file.existingClaim }}
+            - name: restore-source
+              mountPath: /restore-source
+              readOnly: true
+            {{- end }}
         {{- if .Values.metrics.exporters.enabled }}
         - name: exporter
           image: {{ include "pgha.postgresExporterImage" . }}
@@ -304,6 +311,12 @@ spec:
         - name: backup
           persistentVolumeClaim:
             claimName: {{ include "pgha.backupClaim" . }}
+        {{- end }}
+        {{- if and (include "pgha.restoreFile" .) .Values.bootstrap.restore.file.existingClaim }}
+        - name: restore-source
+          persistentVolumeClaim:
+            claimName: {{ .Values.bootstrap.restore.file.existingClaim }}
+            readOnly: true
         {{- end }}
         - name: tls
           secret:
