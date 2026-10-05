@@ -75,10 +75,39 @@ app.kubernetes.io/instance: {{ include "pgha.name" . }}
 {{- list "primary_conninfo" "primary_slot_name" "restore_command" "recovery_target" "recovery_target_time" "recovery_target_lsn" "recovery_target_name" "recovery_target_xid" "recovery_target_action" "recovery_target_inclusive" "recovery_target_timeline" "archive_mode" "archive_command" "ssl" "ssl_cert_file" "ssl_key_file" "ssl_ca_file" "listen_addresses" "port" "unix_socket_directories" "hba_file" "config_file" "data_directory" "wal_level" "hot_standby" "wal_log_hints" "synchronous_standby_names" "password_encryption" "include" "include_if_exists" "include_dir" | toJson -}}
 {{- end -}}
 
+{{/* memoryMB turns a Kubernetes memory quantity into megabytes (MiB). */}}
+{{- define "pgha.memoryMB" -}}
+{{- $q := toString . -}}
+{{- $mb := 0.0 -}}
+{{- if hasSuffix "Gi" $q }}{{ $mb = mulf (float64 (trimSuffix "Gi" $q)) 1024 }}
+{{- else if hasSuffix "Mi" $q }}{{ $mb = float64 (trimSuffix "Mi" $q) }}
+{{- else if hasSuffix "Ki" $q }}{{ $mb = divf (float64 (trimSuffix "Ki" $q)) 1024 }}
+{{- else if hasSuffix "G" $q }}{{ $mb = divf (mulf (float64 (trimSuffix "G" $q)) 1000000000) 1048576 }}
+{{- else if hasSuffix "M" $q }}{{ $mb = divf (mulf (float64 (trimSuffix "M" $q)) 1000000) 1048576 }}
+{{- else if $q }}{{ $mb = divf (float64 $q) 1048576 }}
+{{- end -}}
+{{- int64 $mb -}}
+{{- end -}}
+
+{{/* parameters are the postgresql.conf settings from values, with
+     shared_buffers (a quarter) and effective_cache_size (three quarters)
+     sized from the container's memory when they are not set. */}}
+{{- define "pgha.parameters" -}}
+{{- $p := deepCopy .Values.postgresql.parameters -}}
+{{- $mem := "" -}}
+{{- with .Values.resources }}{{ with .limits }}{{ $mem = default "" .memory }}{{ end }}{{ if not $mem }}{{ with .requests }}{{ $mem = default "" .memory }}{{ end }}{{ end }}{{ end -}}
+{{- if $mem -}}
+{{- $mb := int64 (include "pgha.memoryMB" $mem) -}}
+{{- if not (hasKey $p "shared_buffers") }}{{ $_ := set $p "shared_buffers" (printf "%dMB" (div $mb 4)) }}{{ end -}}
+{{- if not (hasKey $p "effective_cache_size") }}{{ $_ := set $p "effective_cache_size" (printf "%dMB" (div (mul $mb 3) 4)) }}{{ end -}}
+{{- end -}}
+{{- toJson $p -}}
+{{- end -}}
+
 {{/* Parameters that need a restart; the pods roll when one changes. */}}
 {{- define "pgha.restartChecksum" -}}
 {{- $restart := list "max_connections" "shared_buffers" "max_wal_senders" "max_replication_slots" "max_worker_processes" "max_prepared_transactions" "max_locks_per_transaction" "shared_preload_libraries" "huge_pages" "wal_buffers" -}}
 {{- $out := dict "archive" .Values.backup.enabled "image" (include "pgha.postgresImage" .) "replicas" .Values.replicas -}}
-{{- range $k, $v := .Values.postgresql.parameters }}{{ if has $k $restart }}{{ $_ := set $out $k $v }}{{ end }}{{ end -}}
+{{- range $k, $v := include "pgha.parameters" . | fromJson }}{{ if has $k $restart }}{{ $_ := set $out $k $v }}{{ end }}{{ end -}}
 {{- toJson $out | sha256sum -}}
 {{- end -}}

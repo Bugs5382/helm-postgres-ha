@@ -95,10 +95,10 @@ postgresql:
   # -- postgresql.conf settings. Merged over the chart's defaults; agent-owned
   # settings (primary_conninfo, primary_slot_name, restore_command,
   # recovery_target_*) and the TLS, socket and archive settings cannot be set here.
+  # shared_buffers (a quarter) and effective_cache_size (three quarters) are
+  # sized from resources.limits.memory (or the request) unless set here.
   parameters:
     max_connections: "200"
-    shared_buffers: 256MB
-    effective_cache_size: 768MB
     work_mem: 4MB
     maintenance_work_mem: 64MB
     wal_keep_size: 1GB

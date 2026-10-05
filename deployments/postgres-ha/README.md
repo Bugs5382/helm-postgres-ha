@@ -54,6 +54,15 @@ installs touch:
 | `agent.maxLagOnFailover` | 1 MiB | How far behind a standby may be and still be promoted. |
 | `agent.logLevel` | `error` | `debug` in development clusters, `info` in staging. |
 
+## 📏 Sizing
+
+Set `resources` for the postgres container, which runs PostgreSQL and the agent. Unless you set
+them in `postgresql.parameters`, `shared_buffers` is a quarter and `effective_cache_size` three
+quarters of `resources.limits.memory` (or the request when there is no limit). A memory change
+that moves `shared_buffers` rolls the pods; other settings reload in place. The container has no
+CPU limit by default, so a busy server never throttles the agent's Lease renewals. Size PgBouncer
+with `pgbouncer.resources`, and the tools init container and hook Job with `agent.initResources`.
+
 ## 🔐 What is generated
 
 - Secrets `pg-superuser`, `pg-replication`, `pg-rewind`, `pg-pgbouncer` and `pg-role-<role>`,
