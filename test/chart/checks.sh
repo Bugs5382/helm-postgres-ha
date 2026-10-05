@@ -49,4 +49,6 @@ diff -u "$CHART/VALUES.md" "$REF_DIR/chart/VALUES.md" || { echo "VALUES.md is st
 rm -rf "$REF_DIR"
 echo "== release pinning"
 bash "$ROOT/test/release/pin_test.sh"
+echo "== vulnerability gate"
+bash "$ROOT/test/ci/vuln_gate_test.sh"
 echo "chart checks passed"
