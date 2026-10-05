@@ -47,3 +47,50 @@ tests:
       - matchRegex:
           path: data["pgbouncer.ini"]
           pattern: '(?m)^admin_users = pgbouncer_auth$'
+  - it: checks readiness with a query on the admin console, not just an open port
+    documentSelector: {path: kind, value: Deployment}
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.exec.command[0]
+          value: /bin/sh
+      - matchRegex:
+          path: spec.template.spec.containers[0].readinessProbe.exec.command[2]
+          pattern: 'SHOW VERSION'
+  - it: exposes the server-side limits as values
+    documentSelector: {path: kind, value: ConfigMap}
+    set:
+      pgbouncer.maxDbConnections: 80
+      pgbouncer.reservePoolSize: 5
+      pgbouncer.serverIdleTimeout: 300
+    asserts:
+      - matchRegex:
+          path: data["pgbouncer.ini"]
+          pattern: '(?m)^max_db_connections = 80$'
+      - matchRegex:
+          path: data["pgbouncer.ini"]
+          pattern: '(?m)^reserve_pool_size = 5$'
+      - matchRegex:
+          path: data["pgbouncer.ini"]
+          pattern: '(?m)^server_idle_timeout = 300$'
+  - it: can run a database in session mode while the rest pool by transaction
+    documentSelector: {path: kind, value: ConfigMap}
+    set:
+      pgbouncer.sessionDatabases: [reports]
+    asserts:
+      - matchRegex:
+          path: data["pgbouncer.ini"]
+          pattern: '(?m)^reports = host=RELEASE-NAME-primary\.NAMESPACE\.svc port=5432 pool_mode=session$'
+  - it: lists every chart database explicitly, so a reset after failover always finds it
+    documentSelector: {path: kind, value: ConfigMap}
+    set:
+      databases: [{name: app, owner: app}, {name: billing, owner: app}]
+    asserts:
+      - matchRegex:
+          path: data["pgbouncer.ini"]
+          pattern: '(?m)^app = host=RELEASE-NAME-primary\.NAMESPACE\.svc port=5432$'
+      - matchRegex:
+          path: data["pgbouncer.ini"]
+          pattern: '(?m)^billing = host=RELEASE-NAME-primary\.NAMESPACE\.svc port=5432$'
+      - matchRegex:
+          path: data["pgbouncer.ini"]
+          pattern: '(?m)^postgres = host=RELEASE-NAME-primary\.NAMESPACE\.svc port=5432$'

@@ -38,6 +38,14 @@ jobs:
       - name: 🐳 Build the agent image
         run: docker build -t ghcr.io/bugs5382/helm-postgres-ha/pgha:e2e --build-arg VERSION=e2e .
 
+      - name: 🐹 Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: 🐘 Agent tests against real PostgreSQL
+        run: go test -tags integration -count=1 ./internal/pg/
+
       - name: 🔧 Install the chart tools
         run: |
           set -euo pipefail

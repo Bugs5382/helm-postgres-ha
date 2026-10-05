@@ -13,6 +13,12 @@ resources:
     memory: 512Mi
 storage:
   size: 1Gi
+roles:
+  - name: app
+  - name: reporting
+databases:
+  - name: app
+    owner: app
 postgresql:
   allowedCIDRs: ["10.244.0.0/16"]
   parameters:

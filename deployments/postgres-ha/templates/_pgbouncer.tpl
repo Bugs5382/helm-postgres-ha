@@ -1,7 +1,18 @@
 {{/* pgbouncer.ini, rendered once for the ConfigMap and its checksum. */}}
 {{- define "pgha.pgbouncerIni" -}}
 [databases]
-* = host={{ printf "%s.%s.svc" (include "pgha.primary" .) .Release.Namespace }} port=5432
+{{- $primary := printf "%s.%s.svc" (include "pgha.primary" .) .Release.Namespace }}
+{{- $session := .Values.pgbouncer.sessionDatabases }}
+{{- /* Explicit entries, not only the wildcard: a wildcard database is
+       registered on first use and dropped again by RESUME, so a reset after
+       a failover could miss it and leave connections on the old primary. */}}
+{{- $names := list "postgres" }}
+{{- range .Values.databases }}{{ $names = append $names .name }}{{ end }}
+{{- range $session }}{{ $names = append $names . }}{{ end }}
+{{- range $names | uniq }}
+{{ . }} = host={{ $primary }} port=5432{{ if has . $session }} pool_mode=session{{ end }}
+{{- end }}
+* = host={{ $primary }} port=5432
 
 [pgbouncer]
 listen_addr = 0.0.0.0
@@ -20,6 +31,9 @@ admin_users = pgbouncer_auth
 pool_mode = {{ .Values.pgbouncer.poolMode }}
 default_pool_size = {{ .Values.pgbouncer.defaultPoolSize }}
 max_client_conn = {{ .Values.pgbouncer.maxClientConn }}
+max_db_connections = {{ .Values.pgbouncer.maxDbConnections }}
+reserve_pool_size = {{ .Values.pgbouncer.reservePoolSize }}
+server_idle_timeout = {{ .Values.pgbouncer.serverIdleTimeout }}
 ignore_startup_parameters = extra_float_digits
 ; TLS both ways: clients must use it, and the server is verified against
 ; the cluster CA by its primary Service name.
