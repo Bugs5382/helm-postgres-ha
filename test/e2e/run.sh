@@ -25,6 +25,19 @@ if $K exec client -- env PGSSLMODE=disable psql "host=$R-primary.$NS.svc user=ap
 fi
 [ "$(sql "$P" "select count(*) from pg_stat_ssl s join pg_stat_replication r using (pid) where s.ssl")" = "2" ] || fail "replication is not over TLS"
 
+log "pgbouncer: every app role logs in through it over TLS, and losing one pooler pod keeps service"
+RPW=$($K get secret "$R-role-reporting" -o jsonpath='{.data.password}' | base64 -d)
+role_via_pooler() { $K exec client -- env PGPASSWORD="$RPW" psql "host=$R-pgbouncer.$NS.svc user=reporting dbname=app" -XAtq -c "select current_user || ',' || (select ssl from pg_stat_ssl where pid = pg_backend_pid())"; }
+wait_for 60 role_via_pooler || fail "the reporting role cannot log in through pgbouncer"
+[ "$(role_via_pooler)" = "reporting,true" ] || fail "the reporting role's pooled connection is not TLS: $(role_via_pooler)"
+if $K exec client -- env PGSSLMODE=disable psql "host=$R-pgbouncer.$NS.svc user=app dbname=app" -XAtq -c 'select 1' >/dev/null 2>&1; then
+  fail "pgbouncer accepted a client without TLS"
+fi
+POOLER=$($K get pods -l app.kubernetes.io/name=postgres-ha-pgbouncer -o jsonpath='{.items[0].metadata.name}')
+$K delete pod "$POOLER" --wait=false >/dev/null
+for _ in $(seq 1 10); do app_write pooler-drain || fail "a write failed while one pgbouncer pod was replaced"; sleep 0.5; done
+kubectl -n "$NS" rollout status deploy/"$R-pgbouncer" --timeout=120s >/dev/null || fail "pgbouncer did not come back to two pods"
+
 log "network policy: only allowed clients reach the members and the pooler"
 image=$($K get sts "$R" -o jsonpath='{.spec.template.spec.containers[0].image}')
 sed -e "s|POSTGRES_IMAGE|$image|" -e "s|RELEASE|$R|g" -e 's|name: client|name: outsider|' -e 's|e2e-client: "true"|e2e-client: "false"|' "$HERE/client.yaml" | $K apply -f - >/dev/null

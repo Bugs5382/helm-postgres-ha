@@ -220,6 +220,14 @@ pgbouncer:
   poolMode: transaction
   defaultPoolSize: 25
   maxClientConn: 500
+  # -- Most server connections per database across all users (0: no limit).
+  maxDbConnections: 0
+  # -- Extra server connections a pool may use when clients wait.
+  reservePoolSize: 0
+  # -- Seconds an idle server connection is kept.
+  serverIdleTimeout: 600
+  # -- Databases pooled in session mode, for clients that need session state.
+  sessionDatabases: []
   resources:
     requests:
       cpu: 50m
