@@ -1,0 +1,5 @@
+# chart-releaser settings for the release workflow (job-release.yaml). The
+# index points at the chart attached to the vX.Y.Z GitHub Release.
+index-path: "./index.yaml"
+generate-release-notes: false
+release-name-template: "v{{ .Version }}"
