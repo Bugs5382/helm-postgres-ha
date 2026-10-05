@@ -200,6 +200,10 @@ spec:
               value: {{ .Values.backup.retainDays | quote }}
             - name: PGHA_BACKUP_TIMEOUT
               value: {{ .Values.backup.timeout | quote }}
+            {{- if include "pgha.fileBackup" . }}
+            - name: PGHA_BACKUP_PATH
+              value: {{ include "pgha.backupPath" . | quote }}
+            {{- end }}
             {{- include "pgha.walgEnv" . | nindent 12 }}
             {{- end }}
           ports:
@@ -253,6 +257,10 @@ spec:
               mountPath: /var/run/postgresql
             - name: tmp
               mountPath: /tmp
+            {{- if include "pgha.fileBackup" . }}
+            - name: backup
+              mountPath: {{ .Values.backup.file.mountPath }}
+            {{- end }}
         {{- if .Values.metrics.exporters.enabled }}
         - name: exporter
           image: {{ include "pgha.postgresExporterImage" . }}
@@ -292,6 +300,11 @@ spec:
         - name: config
           configMap:
             name: {{ $name }}-config
+        {{- if include "pgha.fileBackup" . }}
+        - name: backup
+          persistentVolumeClaim:
+            claimName: {{ include "pgha.backupClaim" . }}
+        {{- end }}
         - name: tls
           secret:
             secretName: {{ include "pgha.tlsSecret" . }}

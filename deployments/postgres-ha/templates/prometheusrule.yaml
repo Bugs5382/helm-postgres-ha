@@ -70,6 +70,16 @@ spec:
           annotations:
             summary: "{{ $name }} member {{ "{{" }} $labels.pod {{ "}}" }}'s data volume is {{ "{{" }} $value | humanize {{ "}}" }}% full"
             description: "Over {{ $r.diskUsedPercent }}% of the data volume is used. Slots holding WAL for a lagging standby, failing archiving or growth are the usual causes."
+        {{- if include "pgha.fileBackup" . }}
+        - alert: PostgresHABackupVolumeFilling
+          expr: (1 - pgha_backup_volume_available_bytes{ {{- $sel -}} } / pgha_backup_volume_size_bytes{ {{- $sel -}} }) * 100 > {{ $r.diskUsedPercent }}
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $name }} member {{ "{{" }} $labels.pod {{ "}}" }}'s backup volume is {{ "{{" }} $value | humanize {{ "}}" }}% full"
+            description: "Over {{ $r.diskUsedPercent }}% of the backup volume is used. Retention (backup.retainFull, backup.retainDays) or the volume size needs changing before archiving starts to fail."
+        {{- end }}
         {{- if .Values.backup.enabled }}
         - alert: PostgresHAArchiveFailing
           expr: delta(pgha_archive_failed_count{ {{- $sel -}} }[5m]) > 0

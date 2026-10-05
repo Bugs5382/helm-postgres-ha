@@ -1,0 +1,22 @@
+{{- if and (include "pgha.fileBackup" .) (not .Values.backup.file.existingClaim) }}
+{{- $p := .Values.backup.file.persistence }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "pgha.backupClaim" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pgha.labels" . | nindent 4 }}
+  annotations:
+    # The backups outlive the release, so a restore can still read them.
+    helm.sh/resource-policy: keep
+spec:
+  accessModes:
+    {{- toYaml $p.accessModes | nindent 4 }}
+  {{- with $p.storageClassName }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ $p.size }}
+{{- end }}

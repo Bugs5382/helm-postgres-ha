@@ -79,6 +79,12 @@ type Node interface {
 	Rewind(ctx context.Context, conninfo string) (bool, error)
 	// MoveAside renames the data directory out of the way, keeping it.
 	MoveAside(reason string) (string, error)
+	// PrepareBackupPath creates the file backend's directory on the backup
+	// volume; WAL-G needs it to exist.
+	PrepareBackupPath(path string) error
+	// BackupVolume reports the size and free space of the volume holding
+	// path.
+	BackupVolume(path string) (size, avail uint64, err error)
 	// Disk reports the data volume's size, free space and pg_wal size.
 	Disk() (size, avail, wal uint64, err error)
 }

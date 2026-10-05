@@ -92,3 +92,13 @@ func TestLoadRejects(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadFileBackupPath(t *testing.T) {
+	c, err := Load(env(map[string]string{"PGHA_BACKUP_ENABLED": "true", "PGHA_BACKUP_PATH": "/backup/pg"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Backup.Path != "/backup/pg" {
+		t.Fatalf("backup path = %q", c.Backup.Path)
+	}
+}
