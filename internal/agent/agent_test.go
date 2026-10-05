@@ -833,3 +833,30 @@ func TestShutdownFencesWhenRenewalsFailDuringTheStop(t *testing.T) {
 		t.Fatalf("not fenced while the stop hung without renewals: stops=%v", h.node.stops)
 	}
 }
+
+// TestFailoverWaitsTheLeaseDurationNotTicks: failover timing follows how long
+// this member has seen the Lease unchanged, not how many rounds ran, so slow
+// or fast rounds do not move it.
+func TestFailoverWaitsTheLeaseDurationNotTicks(t *testing.T) {
+	h := newHarness(t, "pg-1", "pg-0", map[string]string{lease.SystemID: "100", lease.Timeline: "1", lease.LSN: "200"})
+	standbyNode(h)
+	h.node.lsn = 200
+	h.peers.set("pg-0", down)
+	h.peers.set("pg-2", idleStandby(100))
+	for i := 0; i < 50; i++ {
+		h.tick() // many fast rounds, no time passing
+	}
+	if h.lease().Holder != "pg-0" {
+		t.Fatal("took over after many rounds but no time")
+	}
+	h.clock.add(14 * time.Second)
+	h.tick()
+	if h.lease().Holder != "pg-0" {
+		t.Fatal("took over before the lease duration")
+	}
+	h.clock.add(2 * time.Second)
+	h.tick()
+	if h.lease().Holder != "pg-1" {
+		t.Fatal("did not take over once the lease duration passed")
+	}
+}
