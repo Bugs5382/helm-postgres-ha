@@ -57,6 +57,13 @@ func (a *Agent) selfStatus(l local, rec lease.Record) peer.Status {
 			s.Role = peer.RoleBootstrapping
 		}
 	}
+	// A server started with standby.signal or recovery.signal stays in
+	// recovery until pg_promote, which needs it up. Report that while it
+	// refuses queries, so a standby that is starting (or failing to start)
+	// does not look read-write and block a failover or raise a split brain.
+	if l.running && !l.up && (l.standby || l.recovery) {
+		s.InRecovery = true
+	}
 	switch {
 	case l.running && l.up && !l.st.InRecovery:
 		s.Role = peer.RolePrimary

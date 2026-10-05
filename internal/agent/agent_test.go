@@ -59,6 +59,9 @@ type fakeNode struct {
 	lsn        uint64
 	streaming  bool
 	sysid      string
+	// statusErr makes a running server refuse queries, as one still in
+	// startup or crash-looping does.
+	statusErr  error
 	cloneSysid string
 	signals    map[string]bool
 	conf       map[string]string
@@ -137,6 +140,9 @@ func (f *fakeNode) Status(context.Context) (pg.Status, error) {
 	defer f.lock()()
 	if !f.running {
 		return pg.Status{}, pg.ErrNotRunning
+	}
+	if f.statusErr != nil {
+		return pg.Status{}, f.statusErr
 	}
 	s := pg.Status{InRecovery: f.inRecovery, SystemID: f.sysid, Timeline: f.timeline}
 	if f.inRecovery {
@@ -953,5 +959,51 @@ func TestFailoverWaitsTheLeaseDurationNotTicks(t *testing.T) {
 	h.tick()
 	if h.lease().Holder != "pg-1" {
 		t.Fatal("did not take over once the lease duration passed")
+	}
+}
+
+// --- a server that runs but does not answer yet ---
+
+// startingStandby is the status a member publishes while its server runs
+// with standby.signal but refuses queries (still in startup, or crashing at
+// startup over and over).
+func startingStandby(t *testing.T) peer.Status {
+	t.Helper()
+	h := newHarness(t, "pg-2", "", map[string]string{lease.SystemID: "100", lease.Timeline: "1", lease.LSN: "200"})
+	standbyNode(h)
+	h.node.running = true
+	h.node.statusErr = errors.New("the database system is starting up")
+	h.tick()
+	return h.a.Status()
+}
+
+func TestStartingStandbyReportsRecoveryNotReadWrite(t *testing.T) {
+	s := startingStandby(t)
+	if !s.Running || !s.InRecovery || s.Role == peer.RolePrimary || s.Eligible {
+		t.Fatalf("a starting standby must read as running, in recovery and not eligible: %+v", s)
+	}
+}
+
+func TestStartingStandbyDoesNotBlockFailover(t *testing.T) {
+	h := newHarness(t, "pg-1", "pg-0", map[string]string{lease.SystemID: "100", lease.Timeline: "1", lease.LSN: "200"})
+	standbyNode(h)
+	h.node.lsn = 200
+	h.peers.set("pg-0", down)
+	h.peers.set("pg-2", peer.Result{Status: startingStandby(t)})
+	h.tick()
+	h.clock.add(16 * time.Second)
+	h.tick()
+	if h.lease().Holder != "pg-1" {
+		t.Fatal("a standby still starting up blocked the failover")
+	}
+}
+
+func TestStartingServerWithoutStandbySignalStillCountsAsReadWrite(t *testing.T) {
+	h := newHarness(t, "pg-2", "", map[string]string{lease.SystemID: "100"})
+	h.node.hasData, h.node.running = true, true
+	h.node.statusErr = errors.New("the database system is starting up")
+	h.tick()
+	if s := h.a.Status(); s.InRecovery {
+		t.Fatalf("a server starting without standby.signal may come up read-write and must not read as in recovery: %+v", s)
 	}
 }
