@@ -44,9 +44,16 @@ prepare() {
   *"delete pvc data-pg-2"*)
     # The runbook rebuilds standbys only; move the primary off pg-2 first, as it says.
     if [ "$(holder)" = "$R-2" ]; then
-      $K exec "$R-0" -c postgres -- /pgha/bin/pgha switchover --to any >/dev/null
+      # The agent ignores a switchover while no standby can take over (one
+      # still re-attaching after the previous handover), so ask again until
+      # the primary moves.
       moved() { [ "$(holder)" != "$R-2" ] && settled; }
-      wait_for 120 moved || fail "could not move the primary off $R-2 before the rebuild"
+      ok=
+      for _ in 1 2 3 4 5 6; do
+        $K exec "$R-0" -c postgres -- /pgha/bin/pgha switchover --to any >/dev/null
+        if wait_for 20 moved; then ok=1; break; fi
+      done
+      [ -n "$ok" ] || fail "could not move the primary off $R-2 before the rebuild"
     fi
     ;;
   *"create job verify-now"*) $K delete job verify-now --ignore-not-found >/dev/null ;;
