@@ -11,6 +11,11 @@ backup:
     existingSecret: s3-creds
 serviceMonitor:
   enabled: true
+metrics:
+  exporters:
+    enabled: true
+  prometheusRule:
+    enabled: true
 networkPolicy:
   allowedClients:
     - namespaceSelector:

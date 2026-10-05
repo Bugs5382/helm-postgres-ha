@@ -267,3 +267,42 @@ serviceMonitor:
   enabled: false
   interval: 30s
   labels: {}
+
+metrics:
+  # Exporters beside each member (postgres_exporter, over the local socket as
+  # pgha_monitor) and each pooler (pgbouncer_exporter). The agent's own
+  # metrics are always on, on port 8008.
+  exporters:
+    enabled: false
+    postgres:
+      image:
+        registry: docker.io
+        repository: prometheuscommunity/postgres-exporter
+        tag: v0.20.1
+        digest: "sha256:ac5ec343104fae0e2d84a27bb8d69b38430a11910c5382cad85d478d2bab713e"
+        pullPolicy: IfNotPresent
+      resources:
+        requests:
+          cpu: 10m
+          memory: 32Mi
+        limits:
+          memory: 128Mi
+    pgbouncer:
+      image:
+        registry: docker.io
+        repository: prometheuscommunity/pgbouncer-exporter
+        tag: v0.12.1
+        digest: "sha256:30f31b6c2efdad3647f8182cc7c1a3a19e42bae5d17387694989f969371c230d"
+        pullPolicy: IfNotPresent
+      resources:
+        requests:
+          cpu: 10m
+          memory: 16Mi
+        limits:
+          memory: 64Mi
+  # A PrometheusRule with the cluster's alerts (needs the Prometheus operator).
+  prometheusRule:
+    enabled: false
+    labels: {}
+    # -- Replay lag, in bytes, that pages after 5 minutes.
+    replicationLagBytes: 104857600

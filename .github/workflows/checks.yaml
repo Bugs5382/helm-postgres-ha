@@ -19,6 +19,8 @@ env:
   HELM_SHA256: 97dbeb971be4ac4b27e3839976d9564c0fb35c6f3b1da89dd1e292d236af4096
   KUBECONFORM_VERSION: v0.8.0
   KUBECONFORM_SHA256: 9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
+  PROMETHEUS_VERSION: 3.15.0
+  PROMETHEUS_SHA256: 2a542df32eac02ee17b9d844fb2aa1de00dafa5476579ba8a3ba862e9d572ea0
   HELM_UNITTEST_VERSION: 1.2.1
   HELM_UNITTEST_SHA256: 48e86ecc1467b009630e5954375e5d8494139f73b466df5fe8c04fa45b634939
   KIND_VERSION: v0.33.0
@@ -60,6 +62,9 @@ jobs:
           curl -fsSLo unittest.tgz "https://github.com/helm-unittest/helm-unittest/releases/download/v${HELM_UNITTEST_VERSION}/helm-unittest-linux-amd64-${HELM_UNITTEST_VERSION}.tgz"
           echo "${HELM_UNITTEST_SHA256}  unittest.tgz" | sha256sum -c -
           tar -xzf unittest.tgz -C "$RUNNER_TEMP/helm-plugins/helm-unittest"
+          curl -fsSLo prometheus.tgz "https://github.com/prometheus/prometheus/releases/download/v${PROMETHEUS_VERSION}/prometheus-${PROMETHEUS_VERSION}.linux-amd64.tar.gz"
+          echo "${PROMETHEUS_SHA256}  prometheus.tgz" | sha256sum -c -
+          tar -xzf prometheus.tgz --strip-components=1 -C "$bin" "prometheus-${PROMETHEUS_VERSION}.linux-amd64/promtool"
           echo "$bin" >> "$GITHUB_PATH"
           echo "HELM_PLUGINS=$RUNNER_TEMP/helm-plugins" >> "$GITHUB_ENV"
 

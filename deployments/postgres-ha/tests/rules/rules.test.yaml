@@ -1,0 +1,83 @@
+# promtool unit tests for the rendered alert rules (release pg, namespace db).
+rule_files:
+  - rules.yaml
+evaluation_interval: 30s
+tests:
+  - name: no primary
+    interval: 30s
+    input_series:
+      - series: 'pgha_lease_holder{namespace="db", service="pg-metrics", pod="pg-0"}'
+        values: '1 1 0 0 0 0 0'
+      - series: 'pgha_lease_holder{namespace="db", service="pg-metrics", pod="pg-1"}'
+        values: '0 0 0 0 0 0 0'
+    alert_rule_test:
+      - eval_time: 30s
+        alertname: PostgresHANoPrimary
+        exp_alerts: []
+      - eval_time: 3m
+        alertname: PostgresHANoPrimary
+        exp_alerts:
+          - exp_labels: {severity: critical}
+            exp_annotations:
+              summary: pg has no primary
+              description: 'No member of db/pg holds the cluster Lease, so the cluster takes no writes. The members'' logs say why no failover happens ("waiting" lines).'
+  - name: split brain from two primaries
+    interval: 30s
+    input_series:
+      - series: 'pgha_role{namespace="db", service="pg-metrics", pod="pg-0", role="primary"}'
+        values: '1 1'
+      - series: 'pgha_role{namespace="db", service="pg-metrics", pod="pg-1", role="primary"}'
+        values: '0 1'
+      - series: 'pgha_split_brain{namespace="db", service="pg-metrics", pod="pg-0"}'
+        values: '0 0'
+    alert_rule_test:
+      - eval_time: 0s
+        alertname: PostgresHASplitBrain
+        exp_alerts: []
+      - eval_time: 30s
+        alertname: PostgresHASplitBrain
+        exp_alerts:
+          - exp_labels: {severity: critical}
+            exp_annotations:
+              summary: pg has more than one read-write member
+              description: A member of db/pg reports another member running read-write. The one without the Lease fences itself; this fires if it does not.
+  - name: lagging standby
+    interval: 1m
+    input_series:
+      - series: 'pgha_replica_replay_lag_bytes{namespace="db", service="pg-metrics", pod="pg-0", member="pg-1", sync_state="quorum"}'
+        values: '0 200000000x10'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: PostgresHAReplicationLag
+        exp_alerts: []
+      - eval_time: 8m
+        alertname: PostgresHAReplicationLag
+        exp_alerts:
+          - exp_labels: {severity: warning, member: pg-1}
+            exp_annotations:
+              summary: pg standby pg-1 is lagging
+              description: The standby's replay is 190.7MiB behind the primary.
+  - name: fencing
+    interval: 1m
+    input_series:
+      - series: 'pgha_fencings_total{namespace="db", service="pg-metrics", pod="pg-2"}'
+        values: '0 0 1 1'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: PostgresHAFenced
+        exp_alerts:
+          - exp_labels: {severity: warning, namespace: db, service: pg-metrics, pod: pg-2}
+            exp_annotations:
+              summary: pg member pg-2 fenced itself
+              description: The member stopped PostgreSQL because it ran read-write without the Lease (code 1111). Look for API-server or network trouble on its node.
+  - name: another release does not count
+    interval: 30s
+    input_series:
+      - series: 'pgha_lease_holder{namespace="db", service="other-metrics", pod="other-0"}'
+        values: '0 0 0 0 0'
+      - series: 'pgha_lease_holder{namespace="db", service="pg-metrics", pod="pg-0"}'
+        values: '1 1 1 1 1'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: PostgresHANoPrimary
+        exp_alerts: []

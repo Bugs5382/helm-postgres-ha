@@ -23,6 +23,7 @@ data:
     port = 5432
     unix_socket_directories = '/var/run/postgresql'
     password_encryption = 'scram-sha-256'
+    ident_file = '/etc/pgha/config/pg_ident.conf'
     ssl = on
     ssl_cert_file = '/etc/pgha/tls/tls.crt'
     ssl_key_file = '/etc/pgha/tls/tls.key'
@@ -58,6 +59,7 @@ data:
   pg_hba.conf: |
     # Rendered by the postgres-ha chart. TLS and SCRAM only; the Unix socket
     # maps the OS user to the database role (peer).
+    local   all           pgha_monitor                       peer map=pgha_monitor
     local   all           all                                peer
     {{- range .Values.postgresql.extraHBA }}
     {{ . }}
@@ -71,6 +73,8 @@ data:
     host    all           all             ::/0               reject
     host    replication   all             0.0.0.0/0          reject
     host    replication   all             ::/0               reject
+  pg_ident.conf: |
+    pgha_monitor postgres pgha_monitor
   roles.json: |
     {{- $roles := list -}}
     {{- range .Values.roles -}}

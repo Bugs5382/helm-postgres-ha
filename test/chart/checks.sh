@@ -32,4 +32,11 @@ ini=$(printf '%s' "$render" | yq -r 'select(.kind == "ConfigMap") | .data["pgbou
 ini_sum=$(printf '%s' "$ini" | sha256sum | cut -d' ' -f1)
 ann_sum=$(printf '%s' "$render" | yq -r 'select(.kind == "Deployment") | .spec.template.metadata.annotations["checksum/config"]')
 [ "$ini_sum" = "$ann_sum" ] || { echo "checksum/config ($ann_sum) is not the hash of pgbouncer.ini ($ini_sum)"; exit 1; }
+echo "== alert rules: promtool check and unit tests"
+RULES_DIR=$(mktemp -d)
+helm template pg "$CHART" -n db -f "$CHART/ci/default-values.yaml" --set metrics.prometheusRule.enabled=true -s templates/prometheusrule.yaml \
+  | yq '.spec' > "$RULES_DIR/rules.yaml"
+cp "$CHART/tests/rules/rules.test.yaml" "$RULES_DIR/"
+promtool check rules "$RULES_DIR/rules.yaml"
+promtool test rules "$RULES_DIR/rules.test.yaml"
 echo "chart checks passed"
