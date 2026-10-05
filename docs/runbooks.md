@@ -84,6 +84,10 @@ helm install pgr ./deployments/postgres-ha -n restore --create-namespace \
   delete its volumes, and restore again with an earlier target or none.
 - The restored primary promotes at the target onto a new timeline, archives to its own prefix
   and takes a fresh base backup at once. The standbys clone from it.
+- That prefix (`backup.s3.prefix`) must be empty. A new cluster, whether from initdb or from a
+  restore out of another prefix, refuses to start while its prefix holds backups or WAL from an
+  earlier cluster, and logs code `1114`. Mixing two clusters' WAL in one prefix breaks the
+  standbys' timelines. Pick a new prefix, or empty the old one once nothing needs it.
 
 ### The scheduled restore check
 

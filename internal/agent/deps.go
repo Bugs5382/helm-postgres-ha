@@ -74,6 +74,9 @@ type Node interface {
 	Clone(ctx context.Context, conninfo string) error
 	// FetchBackup restores a base backup into the data directory.
 	FetchBackup(ctx context.Context, prefix, name string) error
+	// ArchiveUsed reports whether the cluster's own WAL-G storage already
+	// holds base backups or WAL.
+	ArchiveUsed(ctx context.Context) (bool, error)
 	// Rewind resynchronises the stopped data directory with a running
 	// primary and reports whether anything had to change.
 	Rewind(ctx context.Context, conninfo string) (bool, error)

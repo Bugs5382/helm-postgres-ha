@@ -203,6 +203,13 @@ func (a *Agent) startBootstrap() {
 	if a.restoring() {
 		a.startTask("restore", func(ctx context.Context) error {
 			r := a.cfg.Bootstrap.Restore
+			// Restoring from the cluster's own prefix continues its history;
+			// a restore from elsewhere starts a new one there.
+			if r.Prefix != "" {
+				if err := a.checkArchiveUnused(ctx); err != nil {
+					return err
+				}
+			}
 			if err := a.node.FetchBackup(ctx, r.Prefix, r.Backup); err != nil {
 				return errs.New(errs.Bootstrap, fmt.Errorf("fetch backup %s: %w", r.Backup, err))
 			}
@@ -214,10 +221,31 @@ func (a *Agent) startBootstrap() {
 		return
 	}
 	a.startTask("initdb", func(ctx context.Context) error {
+		if err := a.checkArchiveUnused(ctx); err != nil {
+			return err
+		}
 		if err := a.node.Initdb(ctx); err != nil {
 			return errs.New(errs.Bootstrap, err)
 		}
 		_, err := a.node.WriteAgentConf(a.primarySettings())
 		return err
 	})
+}
+
+// checkArchiveUnused refuses a new cluster's first data while its backup
+// storage holds another cluster's backups or WAL. Without backups nothing is
+// archived, so there is nothing to check.
+func (a *Agent) checkArchiveUnused(ctx context.Context) error {
+	if !a.cfg.Backup.Enabled {
+		return nil
+	}
+	used, err := a.node.ArchiveUsed(ctx)
+	if err != nil {
+		return errs.New(errs.Bootstrap, fmt.Errorf("check the backup storage before archiving into it: %w", err))
+	}
+	if used {
+		return errs.New(errs.ArchiveInUse, errors.New("the backup storage prefix already holds backups or WAL from another cluster; set backup.s3.prefix to an empty prefix, or empty this one"))
+	}
+	a.log.Info("backup storage is empty; bootstrapping")
+	return nil
 }
