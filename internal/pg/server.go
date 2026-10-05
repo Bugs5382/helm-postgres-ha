@@ -76,6 +76,7 @@ type Server struct {
 	configFile string
 	hbaFile    string
 	env        []string
+	fatal      *fatalWatch
 
 	mu   sync.Mutex
 	cmd  *exec.Cmd
@@ -85,7 +86,7 @@ type Server struct {
 
 // NewServer returns a supervisor for the postmaster binary at path.
 func NewServer(runner *proc.Runner, log golog.Logger, binary, dataDir, configFile, hbaFile string, env []string) *Server {
-	return &Server{runner: runner, log: log, binary: binary, dataDir: dataDir, configFile: configFile, hbaFile: hbaFile, env: env}
+	return &Server{runner: runner, log: log, binary: binary, dataDir: dataDir, configFile: configFile, hbaFile: hbaFile, env: env, fatal: newFatalWatch(os.Stderr)}
 }
 
 // Start starts the postmaster. It returns once the process runs; readiness is
@@ -99,7 +100,8 @@ func (s *Server) Start() error {
 	cmd := exec.Command(s.binary, "-D", s.dataDir, "-c", "config_file="+s.configFile, "-c", "hba_file="+s.hbaFile) // #nosec G204 -- fixed binary and agent-owned paths
 	cmd.Env = s.env
 	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	s.fatal.Reset()
+	cmd.Stderr = s.fatal
 	// Its own process group, so a forced kill reaches the backends too.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := s.runner.Start(cmd); err != nil {
@@ -122,6 +124,10 @@ func (s *Server) Start() error {
 	}()
 	return nil
 }
+
+// LastFatal returns the FATAL or PANIC message the current or last
+// postmaster logged, or "" when it logged none.
+func (s *Server) LastFatal() string { return s.fatal.Last() }
 
 // Running reports whether the postmaster process is alive.
 func (s *Server) Running() bool {

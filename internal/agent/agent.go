@@ -200,6 +200,7 @@ func (a *Agent) CheckVersion(ctx context.Context) error {
 // Run ticks until ctx ends, then shuts the member down cleanly.
 func (a *Agent) Run(ctx context.Context) error {
 	a.runCtx = ctx
+	a.prepareBackupPath()
 	if err := a.CheckVersion(ctx); err != nil {
 		a.fatal = err
 		a.logCoded(err, "refusing to start postgres")

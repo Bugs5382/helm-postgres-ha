@@ -78,6 +78,10 @@ helm install pgr ./deployments/postgres-ha -n restore --create-namespace \
 - `bootstrap.restore.backup` picks a base backup (default `LATEST`).
 - Set at most one of `targetTime`, `targetLSN` or `targetName`; none restores to the end of the
   archived WAL. `targetExclusive` stops just before the target.
+- A time target is reached only once a commit after it has been archived. A target past the end
+  of the archive (in the future, or newer than the last archived commit) cannot be reached: the
+  restoring member logs code `1113` and stays down rather than retrying. Uninstall the release,
+  delete its volumes, and restore again with an earlier target or none.
 - The restored primary promotes at the target onto a new timeline, archives to its own prefix
   and takes a fresh base backup at once. The standbys clone from it.
 
@@ -104,6 +108,24 @@ kubectl -n db logs job/verify-now -c verify
 
 Point `backup.verify.query` at a table your application always writes to, so the check proves
 recent data is there and not only that the server starts.
+
+## Backups on a local volume
+
+With `backup.storage: file`, WAL-G archives WAL and writes base backups to a volume mounted on every
+member at `backup.file.mountPath` (`/backup`), under a directory named after the cluster
+(`backup.file.prefix`). The chart creates a `ReadWriteMany` claim, `<name>-backup`, and keeps it
+when the release is uninstalled. Set `backup.file.existingClaim` to use your own.
+
+- Every member archives and may take the base backup, so with more than one member the volume
+  must be shared: a `ReadWriteMany` class, or a single-node cluster where `ReadWriteOnce` works.
+- The agent creates the prefix directory as the postgres user before the server starts. The
+  members' `fsGroup` (999) must apply to the volume; some NFS provisioners ignore it, and then the
+  directory needs to be writable by uid 999.
+- Retention, the backup-age alert and the restore check work the same as with S3.
+  `PostgresHABackupVolumeFilling` warns when the volume passes
+  `metrics.prometheusRule.diskUsedPercent`.
+- To export, copy the prefix directory off the volume. It is a complete WAL-G store, and
+  `WALG_FILE_PREFIX=<dir> wal-g backup-list` reads it anywhere.
 
 ## Backup retention
 

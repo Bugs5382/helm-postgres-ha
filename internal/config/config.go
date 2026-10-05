@@ -92,6 +92,9 @@ type Backup struct {
 	RetainDays int
 	// Timeout bounds one backup run.
 	Timeout time.Duration
+	// Path is the WAL-G file prefix on a mounted volume, for the file
+	// backend; empty with S3.
+	Path string
 }
 
 // Config is the agent's whole configuration.
@@ -225,6 +228,7 @@ func Load(get Getenv) (Config, error) {
 			RetainFull: r.int("PGHA_BACKUP_RETAIN_FULL", 7),
 			RetainDays: r.int("PGHA_BACKUP_RETAIN_DAYS", 14),
 			Timeout:    r.duration("PGHA_BACKUP_TIMEOUT", 6*time.Hour),
+			Path:       r.str("PGHA_BACKUP_PATH", ""),
 		},
 		PgBouncerService: r.str("PGHA_PGBOUNCER_SERVICE", ""),
 		OTLPEndpoint:     r.str("OTEL_EXPORTER_OTLP_ENDPOINT", ""),

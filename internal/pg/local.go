@@ -121,6 +121,9 @@ func (l *Local) Start() error { return l.srv.Start() }
 // Running reports whether the postmaster runs.
 func (l *Local) Running() bool { return l.srv.Running() }
 
+// LastFatal returns the FATAL or PANIC message the last postmaster logged.
+func (l *Local) LastFatal() string { return l.srv.LastFatal() }
+
 // Stop stops the postmaster.
 func (l *Local) Stop(ctx context.Context, mode StopMode) error {
 	defer l.db.Close()
@@ -237,6 +240,21 @@ func (l *Local) FetchBackup(ctx context.Context, prefix, name string) error {
 		return err
 	}
 	return l.install(dir)
+}
+
+// PrepareBackupPath creates the file backend's directory.
+func (l *Local) PrepareBackupPath(path string) error {
+	return os.MkdirAll(path, 0o700)
+}
+
+// BackupVolume reports the size and free space of the volume holding path.
+func (l *Local) BackupVolume(path string) (uint64, uint64, error) {
+	var st syscall.Statfs_t
+	if err := syscall.Statfs(path, &st); err != nil {
+		return 0, 0, err
+	}
+	bs := uint64(st.Bsize) // #nosec G115 -- block size is positive
+	return st.Blocks * bs, st.Bavail * bs, nil
 }
 
 // Rewind runs pg_rewind against a primary.

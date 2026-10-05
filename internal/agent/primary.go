@@ -121,7 +121,13 @@ func (a *Agent) lead(ctx context.Context, rec lease.Record, l local) {
 func (a *Agent) startAsHolder(l local) {
 	switch {
 	case l.recovery:
-		// Restore: the settings were written with the backup.
+		// Restore: the settings were written with the backup. A restore that
+		// ran out of WAL before its target fails the same way every time.
+		if a.node.LastFatal() == pg.RecoveryTargetNotReached {
+			a.fatal = errs.New(errs.RestoreTarget, fmt.Errorf("the archived WAL ends before the recovery target %s; pick an earlier target or restore without one", a.restoreTarget()))
+			a.logCoded(a.fatal, "not restarting the restore")
+			return
+		}
 	case l.lastWasRW && !l.rejoin:
 		if _, err := a.node.WriteAgentConf(a.primarySettings()); err != nil {
 			a.log.Error(err, "cannot write agent settings")

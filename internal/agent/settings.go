@@ -120,6 +120,20 @@ func (a *Agent) restoreSettings() map[string]string {
 	return s
 }
 
+// restoreTarget describes the configured recovery target for messages.
+func (a *Agent) restoreTarget() string {
+	r := a.cfg.Bootstrap.Restore
+	switch {
+	case r.TargetTime != "":
+		return "time " + r.TargetTime
+	case r.TargetLSN != "":
+		return "LSN " + r.TargetLSN
+	case r.TargetName != "":
+		return "name " + r.TargetName
+	}
+	return "(none)"
+}
+
 // desiredSync renders synchronous_standby_names from the standbys that are
 // streaming now. Listing only attached standbys keeps a fresh primary (or one
 // whose standbys are all down) from blocking every commit; strict mode lists

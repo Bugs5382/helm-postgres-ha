@@ -39,6 +39,8 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
+
 	"github.com/Bugs5382/helm-postgres-ha/internal/cluster"
 	"github.com/Bugs5382/helm-postgres-ha/internal/config"
 	"github.com/Bugs5382/helm-postgres-ha/internal/errs"
@@ -67,6 +69,10 @@ type fakeNode struct {
 	conf       map[string]string
 	stops      []pg.StopMode
 	starts     int
+	// preparedPath is the file backup directory the agent created.
+	preparedPath string
+	// lastFatal is the FATAL or PANIC message the last postmaster exited with.
+	lastFatal  string
 	reloads    int
 	promoteOK  bool
 	rewindErr  error
@@ -122,7 +128,8 @@ func (f *fakeNode) Start() error {
 	f.inRecovery = f.signals[pg.StandbySignal] || f.signals[pg.RecoverySignal]
 	return nil
 }
-func (f *fakeNode) Running() bool { defer f.lock()(); return f.running }
+func (f *fakeNode) Running() bool     { defer f.lock()(); return f.running }
+func (f *fakeNode) LastFatal() string { defer f.lock()(); return f.lastFatal }
 func (f *fakeNode) Stop(_ context.Context, m pg.StopMode) error {
 	if f.onStop != nil {
 		f.onStop()
@@ -225,6 +232,12 @@ func (f *fakeNode) MoveAside(string) (string, error) {
 	return "/data.aside", nil
 }
 func (f *fakeNode) Disk() (uint64, uint64, uint64, error) { return 100, 50, 1, nil }
+func (f *fakeNode) PrepareBackupPath(path string) error {
+	defer f.lock()()
+	f.preparedPath = path
+	return nil
+}
+func (f *fakeNode) BackupVolume(string) (uint64, uint64, error) { return 1000, 250, nil }
 
 // fakePeers answers status requests from a table.
 type fakePeers struct {
@@ -1005,5 +1018,84 @@ func TestStartingServerWithoutStandbySignalStillCountsAsReadWrite(t *testing.T) 
 	h.tick()
 	if s := h.a.Status(); s.InRecovery {
 		t.Fatalf("a server starting without standby.signal may come up read-write and must not read as in recovery: %+v", s)
+	}
+}
+
+// --- a restore whose target cannot be reached ---
+
+// restoringHolder is the member restoring a backup: it holds the Lease and
+// its data carries recovery.signal.
+func restoringHolder(t *testing.T) *harness {
+	t.Helper()
+	h := newHarness(t, "pg-0", "pg-0", map[string]string{lease.SystemID: "100"})
+	h.node.hasData, h.node.signals[pg.RecoverySignal] = true, true
+	return h
+}
+
+func TestRestoreThatCannotReachItsTargetIsNotRestarted(t *testing.T) {
+	h := restoringHolder(t)
+	h.tick() // starts recovery
+	if h.node.starts != 1 {
+		t.Fatalf("restore did not start: starts=%d", h.node.starts)
+	}
+	h.node.running = false
+	h.node.lastFatal = "recovery ended before configured recovery target was reached"
+	for i := 0; i < 5; i++ {
+		h.clock.add(2 * time.Second)
+		h.tick()
+	}
+	if h.node.starts != 1 {
+		t.Fatalf("a restore that cannot reach its target was restarted %d times", h.node.starts-1)
+	}
+	if errs.Code(h.a.fatal) != errs.RestoreTarget || !strings.Contains(h.a.fatal.Error(), "recovery target") {
+		t.Fatalf("fatal = %v", h.a.fatal)
+	}
+	if h.a.Status().Eligible {
+		t.Fatal("the member is still eligible")
+	}
+}
+
+func TestRestoreThatExitsForAnotherReasonIsRestarted(t *testing.T) {
+	h := restoringHolder(t)
+	h.tick()
+	h.node.running = false
+	h.node.lastFatal = "the database system is shutting down"
+	h.clock.add(2 * time.Second)
+	h.tick()
+	if h.node.starts != 2 || h.a.fatal != nil {
+		t.Fatalf("starts=%d fatal=%v", h.node.starts, h.a.fatal)
+	}
+}
+
+// --- the local file backend ---
+
+func TestFileBackupPathIsCreatedBeforePostgresStarts(t *testing.T) {
+	h := newHarness(t, "pg-0", "", nil)
+	h.a.cfg.Backup.Enabled, h.a.cfg.Backup.Path = true, "/backup/pg"
+	h.a.prepareBackupPath()
+	if h.node.preparedPath != "/backup/pg" {
+		t.Fatalf("prepared %q", h.node.preparedPath)
+	}
+}
+
+func TestNoFileBackupPathPreparesNothing(t *testing.T) {
+	h := newHarness(t, "pg-0", "", nil)
+	h.a.cfg.Backup.Enabled = true
+	h.a.prepareBackupPath()
+	if h.node.preparedPath != "" {
+		t.Fatalf("prepared %q without a file backend", h.node.preparedPath)
+	}
+}
+
+func TestBackupVolumeUsageIsExported(t *testing.T) {
+	h := primaryHarness(t)
+	h.a.cfg.Backup.Enabled, h.a.cfg.Backup.Path = true, "/backup/pg"
+	h.clock.add(dutyEvery)
+	h.tick()
+	if got := testutil.ToFloat64(h.m.BackupVolumeSize); got != 1000 {
+		t.Fatalf("backup volume size = %v", got)
+	}
+	if got := testutil.ToFloat64(h.m.BackupVolumeAvailable); got != 250 {
+		t.Fatalf("backup volume available = %v", got)
 	}
 }
