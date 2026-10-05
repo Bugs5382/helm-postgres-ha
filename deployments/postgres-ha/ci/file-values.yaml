@@ -1,0 +1,12 @@
+# The file backend: WAL-G archives and backs up to a mounted volume.
+postgresql:
+  allowedCIDRs: ["10.244.0.0/16"]
+backup:
+  enabled: true
+  storage: file
+  file:
+    persistence:
+      size: 5Gi
+metrics:
+  prometheusRule:
+    enabled: true

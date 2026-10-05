@@ -31,6 +31,7 @@ import (
 
 	golog "github.com/Bugs5382/go-log"
 
+	"github.com/Bugs5382/helm-postgres-ha/internal/errs"
 	"github.com/Bugs5382/helm-postgres-ha/internal/lease"
 	"github.com/Bugs5382/helm-postgres-ha/internal/peer"
 )
@@ -135,6 +136,29 @@ func (a *Agent) collectDisk() {
 	a.m.DataVolumeSize.Set(float64(size))
 	a.m.DataVolumeAvailable.Set(float64(avail))
 	a.m.WALDirBytes.Set(float64(wal))
+	if p := a.cfg.Backup.Path; a.cfg.Backup.Enabled && p != "" {
+		bsize, bavail, berr := a.node.BackupVolume(p)
+		if berr != nil {
+			golog.Trace(a.log, "cannot read backup volume usage", golog.F("error", berr.Error()))
+			return
+		}
+		a.m.BackupVolumeSize.Set(float64(bsize))
+		a.m.BackupVolumeAvailable.Set(float64(bavail))
+	}
+}
+
+// prepareBackupPath creates the file backend's directory before PostgreSQL
+// starts archiving into it.
+func (a *Agent) prepareBackupPath() {
+	p := a.cfg.Backup.Path
+	if !a.cfg.Backup.Enabled || p == "" {
+		return
+	}
+	if err := a.node.PrepareBackupPath(p); err != nil {
+		a.logCoded(errs.New(errs.Backup, err), "cannot create the backup directory")
+		return
+	}
+	a.log.Info("backup directory ready", golog.F("path", p))
 }
 
 // refreshPassFile rewrites the libpq password file when a password changes.
