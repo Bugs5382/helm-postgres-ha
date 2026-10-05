@@ -42,10 +42,10 @@ Until a release publishes it, build and push it yourself and set `agent.image`.
 
 ## 📚 Docs
 
-- [Chart README and values](deployments/postgres-ha/README.md)
+- [Chart README](deployments/postgres-ha/README.md) and the [values reference](deployments/postgres-ha/VALUES.md)
 - [How failover works](docs/architecture.md)
 - [Runbooks](docs/runbooks.md): switchover, failover, rebuilding a member, restore and PITR,
-  certificates, major upgrades
+  certificates, major upgrades, pooling limits (CI runs every runbook command)
 - [Agent error codes](docs/errors.md)
 
 ## 🛠️ Develop

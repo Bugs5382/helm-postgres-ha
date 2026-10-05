@@ -43,7 +43,7 @@ and archive settings) are refused in `postgresql.parameters`.
 - `internal/backup/` - the WAL-G backup scheduler; `internal/secrets/` - the credential hook.
 - `internal/errs/` - coded errors; `docs/errors.md` must list every code (a test checks it).
 - `deployments/postgres-ha/` - the chart, its schema, `tests/` (helm-unittest) and `ci/` values.
-- `test/chart/checks.sh` - chart checks; `test/e2e/` - kind failover and backup suites.
+- `test/chart/checks.sh` - chart checks; `test/e2e/` - kind failover, backup and runbook suites.
 
 The repo follows the `go/app` layout except that the binary lives in `cmd/pgha` (it is not a
 server only) and the transport package is `internal/server` plus `internal/peer`.
@@ -55,11 +55,17 @@ server only) and the transport package is `internal/server` plus `internal/peer`
 - Real PostgreSQL: `go test -tags integration ./internal/pg/` starts a primary and a streaming
   standby from the chart's pinned image in Docker and checks status, promotion and roles.
 - Lint: `task lint` (gofmt, golangci-lint, yamllint)
-- Chart: `bash test/chart/checks.sh` (needs helm, kubeconform, yq, promtool and the helm-unittest
-  plugin); alert rule unit tests live in `deployments/postgres-ha/tests/rules`
+- Chart: `bash test/chart/checks.sh` (needs helm, kubeconform, yq, promtool, helm-docs and the
+  helm-unittest plugin); alert rule unit tests live in `deployments/postgres-ha/tests/rules`
+- Values reference: `deployments/postgres-ha/VALUES.md` is generated from the `# --` comments in
+  `values.yaml`. Every value gets one. After changing values, run
+  `helm-docs --chart-search-root deployments/postgres-ha --template-files=VALUES.md.gotmpl --output-file=VALUES.md`;
+  the chart checks fail when it is stale.
 - End to end: create the kind cluster from `test/e2e/kind.yaml`, install cert-manager, load the
   image tagged `ghcr.io/bugs5382/helm-postgres-ha/pgha:e2e`, then `test/e2e/install.sh`,
-  `test/e2e/run.sh` and `test/e2e/backup.sh`. CI does exactly this in `.github/workflows/checks.yaml`.
+  `test/e2e/run.sh`, `test/e2e/backup.sh` and `test/e2e/runbooks.sh`. The last one runs every
+  `bash` block in `docs/runbooks.md` against the backup suite's release, so a runbook command
+  that no longer works fails CI. CI does exactly this in `.github/workflows/checks.yaml`.
 - License headers: `task license` (golic, Go sources).
 
 ## Logging

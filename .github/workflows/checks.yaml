@@ -1,8 +1,9 @@
 name: Checks
 # The repository's own checks, as one job: the agent image build, the chart
 # checks (lint, kubeconform, schema and unit tests) and the kind end-to-end
-# suites (failover and backup with point-in-time restore). Every tool is a
-# pinned release checked against its published SHA-256.
+# suites (failover, backup with point-in-time restore, and every runbook
+# command). Every tool is a pinned release checked against its published
+# SHA-256.
 #
 # Pull requests only, and not while the PR is a draft.
 on:
@@ -21,6 +22,8 @@ env:
   KUBECONFORM_SHA256: 9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
   PROMETHEUS_VERSION: 3.15.0
   PROMETHEUS_SHA256: 2a542df32eac02ee17b9d844fb2aa1de00dafa5476579ba8a3ba862e9d572ea0
+  HELM_DOCS_VERSION: 1.14.2
+  HELM_DOCS_SHA256: a8cf72ada34fad93285ba2a452b38bdc5bd52cc9a571236244ec31022928d6cc
   HELM_UNITTEST_VERSION: 1.2.1
   HELM_UNITTEST_SHA256: 48e86ecc1467b009630e5954375e5d8494139f73b466df5fe8c04fa45b634939
   KIND_VERSION: v0.33.0
@@ -65,6 +68,9 @@ jobs:
           curl -fsSLo prometheus.tgz "https://github.com/prometheus/prometheus/releases/download/v${PROMETHEUS_VERSION}/prometheus-${PROMETHEUS_VERSION}.linux-amd64.tar.gz"
           echo "${PROMETHEUS_SHA256}  prometheus.tgz" | sha256sum -c -
           tar -xzf prometheus.tgz --strip-components=1 -C "$bin" "prometheus-${PROMETHEUS_VERSION}.linux-amd64/promtool"
+          curl -fsSLo helm-docs.tgz "https://github.com/norwoodj/helm-docs/releases/download/v${HELM_DOCS_VERSION}/helm-docs_${HELM_DOCS_VERSION}_Linux_x86_64.tar.gz"
+          echo "${HELM_DOCS_SHA256}  helm-docs.tgz" | sha256sum -c -
+          tar -xzf helm-docs.tgz -C "$bin" helm-docs
           echo "$bin" >> "$GITHUB_PATH"
           echo "HELM_PLUGINS=$RUNNER_TEMP/helm-plugins" >> "$GITHUB_ENV"
 
@@ -89,6 +95,9 @@ jobs:
 
       - name: 💾 Backup and restore tests
         run: bash test/e2e/backup.sh
+
+      - name: 📖 Runbook commands
+        run: bash test/e2e/runbooks.sh
 
       - name: ⬆️ Major-version upgrade test
         run: bash test/e2e/upgrade.sh

@@ -15,10 +15,15 @@ commonLabels: {}
 # PostgreSQL itself: the official image, pinned by digest. The chart supports
 # one major per chart line (see appVersion).
 image:
+  # -- Registry for the PostgreSQL image.
   registry: docker.io
+  # -- The official postgres image.
   repository: library/postgres
+  # -- Tag. The chart supports one PostgreSQL major per chart line.
   tag: "18.6-bookworm"
+  # -- Digest the tag is pinned to. Set both when you change the tag.
   digest: "sha256:3725f4e2499eef5134592b3b4ab79a543ed7f8e533b05b5b637af926630f6650"
+  # -- Image pull policy.
   pullPolicy: IfNotPresent
 
 # The agent: built from this repository (pgha plus a static wal-g). An init
@@ -26,12 +31,15 @@ image:
 # PID 1 and supervises the server.
 agent:
   image:
+    # -- Registry for the agent image.
     registry: ghcr.io
+    # -- The agent image (pgha plus a static wal-g).
     repository: bugs5382/helm-postgres-ha/pgha
     # -- Defaults to the chart version.
     tag: ""
     # -- Set a digest to pin the image.
     digest: ""
+    # -- Image pull policy.
     pullPolicy: IfNotPresent
   # -- How long a Lease holder may go without renewing before others may take over.
   leaseDuration: 15s
@@ -42,13 +50,17 @@ agent:
   retryPeriod: 2s
   # -- A standby that cannot stream from a healthy primary for this long is rewound or re-cloned.
   rejoinTimeout: 60s
+  # -- How long pg_promote may take. A member that does not finish in time gives the Lease back.
   promoteTimeout: 30s
+  # -- Timeout for each mutual-TLS status call to a peer.
   peerTimeout: 2s
   # -- Most WAL (bytes) a standby may be behind the last primary position and still be promoted.
   maxLagOnFailover: 1048576
   # -- Replay lag (bytes) past which a standby reports not ready. 0 turns it off.
   readyMaxLag: 67108864
+  # -- Agent log level: trace, debug, info, warn or error. Use debug in development and info in staging.
   logLevel: error
+  # -- Agent log format: json, or console for local runs.
   logFormat: json
   # -- OTLP/gRPC endpoint (host:port) for traces. Empty sends none.
   otlpEndpoint: ""
@@ -61,15 +73,19 @@ agent:
     limits:
       memory: 256Mi
 
+# -- Secrets for pulling the images, as a list of names.
 imagePullSecrets: []
 
 storage:
+  # -- Size of each member's data volume.
   size: 10Gi
   # -- Empty uses the cluster default.
   storageClassName: ""
+  # -- Access modes for the data volumes.
   accessModes: [ReadWriteOnce]
 
-# Resources for the postgres container (PostgreSQL and the agent).
+# -- Resources for the postgres container (PostgreSQL and the agent). shared_buffers
+# and effective_cache_size are sized from the memory limit (or request).
 resources:
   requests:
     cpu: 250m
@@ -87,6 +103,7 @@ postgresql:
     # even when no standby streams (writes stop rather than run unprotected).
     # off: asynchronous. The agent manages synchronous_standby_names.
     mode: quorum
+    # -- Standbys a commit waits for in quorum and strict modes.
     count: 1
   # -- initdb options for a new cluster.
   initdbArgs: "--encoding=UTF8 --locale=C.UTF-8 --data-checksums"
@@ -105,8 +122,10 @@ postgresql:
     max_slot_wal_keep_size: 4GB
     max_wal_size: 2GB
 
-# Application roles. Each gets a generated password Secret
-# (<name>-role-<role>) unless existingSecret is set.
+# -- Application roles. Each gets a generated password Secret
+# (<name>-role-<role>) unless existingSecret names one. Fields: name;
+# existingSecret and passwordKey (the Secret and its key); createdb and
+# createrole; connectionLimit (-1 is no limit); inRoles (roles it is granted).
 roles:
   - name: app
     existingSecret: ""
@@ -116,7 +135,8 @@ roles:
     connectionLimit: -1
     inRoles: []
 
-# Databases to create. The owner must be a listed role (or postgres).
+# -- Databases to create. Fields: name; owner (a listed role, or postgres);
+# extensions (created in the database).
 databases:
   - name: app
     owner: app
@@ -126,16 +146,24 @@ databases:
 # and never rewritten, unless existingSecret names your own Secret.
 credentials:
   superuser:
+    # -- Secret with the superuser (postgres) password. Empty generates one.
     existingSecret: ""
+    # -- Key in the Secret that holds the password.
     passwordKey: password
   replication:
+    # -- Secret with the replication role's password. Empty generates one.
     existingSecret: ""
+    # -- Key in the Secret that holds the password.
     passwordKey: password
   rewind:
+    # -- Secret with the pg_rewind role's password. Empty generates one.
     existingSecret: ""
+    # -- Key in the Secret that holds the password.
     passwordKey: password
   pgbouncer:
+    # -- Secret with the PgBouncer auth_query role's password. Empty generates one.
     existingSecret: ""
+    # -- Key in the Secret that holds the password.
     passwordKey: password
 
 tls:
@@ -144,7 +172,9 @@ tls:
     enabled: true
     # -- Issuer to sign with. Empty creates a self-signed CA for this release.
     issuerRef: {}
+    # -- Certificate lifetime.
     duration: 2160h
+    # -- How long before expiry cert-manager renews.
     renewBefore: 360h
   # -- Secret with tls.crt, tls.key and ca.crt for the members, used instead
   # of cert-manager. The certificate needs the DNS names listed in the README
@@ -163,11 +193,15 @@ bootstrap:
     prefix: ""
     # -- Point-in-time target; set at most one.
     targetTime: ""
+    # -- Recover up to this LSN.
     targetLSN: ""
+    # -- Recover up to this named restore point.
     targetName: ""
+    # -- Stop just before the target instead of just after it.
     targetExclusive: false
 
 backup:
+  # -- Turn on WAL archiving and scheduled base backups with WAL-G. Needs backup.s3.
   enabled: false
   # -- Cron schedule (UTC).
   schedule: "0 3 * * *"
@@ -177,12 +211,16 @@ backup:
   retainFull: 7
   # -- Backups newer than this many days are kept as well.
   retainDays: 14
+  # -- How long one base backup may run before it is stopped.
   timeout: 6h
   s3:
     # -- WAL-G prefix, for example s3://bucket/cluster.
     prefix: ""
+    # -- S3 endpoint URL for S3-compatible storage. Empty uses AWS.
     endpoint: ""
+    # -- S3 region.
     region: us-east-1
+    # -- Use path-style addressing (most S3-compatible stores need it).
     forcePathStyle: false
     # -- Secret with AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY.
     existingSecret: ""
@@ -192,13 +230,19 @@ backup:
   # throwaway server, replay the archived WAL, run a query, and record the
   # outcome on the backup Lease (pgha_backup_last_verify_ok).
   verify:
+    # -- Run the scheduled restore check. Applies only when backups are on.
     enabled: true
+    # -- Cron schedule (UTC) for the restore check.
     schedule: "0 5 * * *"
+    # -- Database the check query runs in.
     database: postgres
+    # -- Query that must succeed on the restored server.
     query: SELECT count(*) FROM pg_class
+    # -- How long the restore check may run.
     timeout: 1h
     # -- Scratch space for the restored data. Empty uses storage.size.
     scratchSize: ""
+    # -- Resources for the restore check Job.
     resources:
       requests:
         cpu: 100m
@@ -207,8 +251,11 @@ backup:
         memory: 1Gi
 
 pgbouncer:
+  # -- Run PgBouncer in front of the primary.
   enabled: true
+  # -- PgBouncer replicas.
   replicas: 2
+  # -- PgBouncer image, pinned by digest.
   image:
     registry: docker.io
     repository: edoburu/pgbouncer
@@ -218,7 +265,9 @@ pgbouncer:
   # -- transaction pooling breaks session state (prepared statements across
   # transactions, advisory locks, LISTEN/NOTIFY); use session where needed.
   poolMode: transaction
+  # -- Server connections per user and database pair.
   defaultPoolSize: 25
+  # -- Most client connections each PgBouncer accepts.
   maxClientConn: 500
   # -- Most server connections per database across all users (0: no limit).
   maxDbConnections: 0
@@ -228,6 +277,7 @@ pgbouncer:
   serverIdleTimeout: 600
   # -- Databases pooled in session mode, for clients that need session state.
   sessionDatabases: []
+  # -- Resources for each PgBouncer pod.
   resources:
     requests:
       cpu: 50m
@@ -236,9 +286,11 @@ pgbouncer:
       memory: 128Mi
 
 service:
+  # -- Annotations added to the primary and replica Services.
   annotations: {}
 
 networkPolicy:
+  # -- Create NetworkPolicies for the members and PgBouncer.
   enabled: true
   # -- NetworkPolicy peers allowed to reach PostgreSQL and PgBouncer.
   allowedClients: []
@@ -252,28 +304,40 @@ networkPolicy:
   extraEgress: []
 
 podDisruptionBudget:
+  # -- Create a PodDisruptionBudget for the members.
   enabled: true
+  # -- Members a voluntary disruption may take down at once.
   maxUnavailable: 1
 
 affinity:
   # -- hard requires one member per node; soft prefers it.
   podAntiAffinity: hard
+  # -- Topology key for the anti-affinity rule.
   topologyKey: kubernetes.io/hostname
   # -- Spread members across zones when the nodes are labelled with one.
   zoneSpread: true
   # -- Extra affinity merged into the pod spec.
   extra: {}
 
+# -- Node selector for the members.
 nodeSelector: {}
+# -- Tolerations for the members.
 tolerations: []
+# -- PriorityClass for the members.
 priorityClassName: ""
+# -- Grace period for a member to stop. The agent's own shutdown timeout is 10 seconds shorter.
 terminationGracePeriodSeconds: 120
+# -- Labels added to the member pods.
 podLabels: {}
+# -- Annotations added to the member pods.
 podAnnotations: {}
 
 serviceMonitor:
+  # -- Create a ServiceMonitor for the agent metrics (needs the Prometheus operator).
   enabled: false
+  # -- Scrape interval.
   interval: 30s
+  # -- Labels added to the ServiceMonitor, for your Prometheus selector.
   labels: {}
 
 metrics:
@@ -281,14 +345,17 @@ metrics:
   # pgha_monitor) and each pooler (pgbouncer_exporter). The agent's own
   # metrics are always on, on port 8008.
   exporters:
+    # -- Run postgres_exporter beside each member and pgbouncer_exporter beside each pooler.
     enabled: false
     postgres:
+      # -- postgres_exporter image, pinned by digest.
       image:
         registry: docker.io
         repository: prometheuscommunity/postgres-exporter
         tag: v0.20.1
         digest: "sha256:ac5ec343104fae0e2d84a27bb8d69b38430a11910c5382cad85d478d2bab713e"
         pullPolicy: IfNotPresent
+      # -- Resources for postgres_exporter.
       resources:
         requests:
           cpu: 10m
@@ -296,12 +363,14 @@ metrics:
         limits:
           memory: 128Mi
     pgbouncer:
+      # -- pgbouncer_exporter image, pinned by digest.
       image:
         registry: docker.io
         repository: prometheuscommunity/pgbouncer-exporter
         tag: v0.12.1
         digest: "sha256:30f31b6c2efdad3647f8182cc7c1a3a19e42bae5d17387694989f969371c230d"
         pullPolicy: IfNotPresent
+      # -- Resources for pgbouncer_exporter.
       resources:
         requests:
           cpu: 10m
@@ -310,7 +379,9 @@ metrics:
           memory: 64Mi
   # A PrometheusRule with the cluster's alerts (needs the Prometheus operator).
   prometheusRule:
+    # -- Create a PrometheusRule with the cluster's alerts (needs the Prometheus operator).
     enabled: false
+    # -- Labels added to the PrometheusRule, for your Prometheus selector.
     labels: {}
     # -- Replay lag, in bytes, that pages after 5 minutes.
     replicationLagBytes: 104857600

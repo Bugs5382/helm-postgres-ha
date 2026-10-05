@@ -32,8 +32,8 @@ password is in `pg-role-<role>` (`username` and `password` keys).
 
 ## ⚙️ Values
 
-Every value is validated by `values.schema.json`; `values.yaml` documents each one. The ones most
-installs touch:
+Every value is validated by `values.schema.json` and listed in the generated
+[values reference](VALUES.md). The ones most installs touch:
 
 | Value | Default | What it does |
 | --- | --- | --- |

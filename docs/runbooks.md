@@ -47,8 +47,8 @@ lag check only applies while every candidate is behind the last recorded positio
 A member whose data cannot be rewound is moved aside and cloned automatically. So is a standby
 that fell further behind than its slot may hold (`max_slot_wal_keep_size`): the primary recreates
 the lost slot, and the standby, still unable to stream after a rewind that found nothing to
-change, re-clones. To force a rebuild
-(a corrupted or foreign volume):
+change, re-clones. To force a rebuild of a standby (a corrupted or foreign volume), delete its volume
+and pod. Rebuild only standbys: if the member is the primary, run a planned switchover first.
 
 ```bash
 kubectl -n db delete pvc data-pg-2 --wait=false
@@ -98,7 +98,8 @@ Every member exports the outcome as `pgha_backup_last_verify_timestamp_seconds` 
 
 ```bash
 kubectl -n db create job verify-now --from=cronjob/pg-backup-verify
-kubectl -n db logs -f job/verify-now -c verify
+kubectl -n db wait --for=condition=complete job/verify-now --timeout=1h
+kubectl -n db logs job/verify-now -c verify
 ```
 
 Point `backup.verify.query` at a table your application always writes to, so the check proves
