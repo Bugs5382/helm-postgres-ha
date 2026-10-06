@@ -189,8 +189,21 @@ bootstrap:
   restore:
     # -- Backup name, or LATEST.
     backup: LATEST
-    # -- WAL-G prefix holding the source backups. Empty uses backup.s3.prefix.
+    # -- WAL-G prefix holding the source backups (an s3 source). Empty uses
+    # the cluster's own backup storage.
     prefix: ""
+    # -- Where the source backups are: s3 (prefix) or file (a volume, see
+    # file). Empty means s3 when prefix is set, otherwise the cluster's own
+    # storage.
+    source: ""
+    # A file source: a volume holding a WAL-G file store, mounted read-only.
+    file:
+      # -- Claim holding the source. Empty uses the cluster's own backup
+      # volume (backup.storage file).
+      existingClaim: ""
+      # -- Directory of the WAL-G store on that volume, for example the old
+      # cluster's name. Required with existingClaim.
+      directory: ""
     # -- Point-in-time target; set at most one.
     targetTime: ""
     # -- Recover up to this LSN.

@@ -53,6 +53,23 @@ repository's `Dockerfile`: `pgha` plus a static `wal-g`) and pins its digest in 
 chart. Installing from a checkout (`./deployments/postgres-ha`) needs an agent image you build and
 push yourself, set with `agent.image`.
 
+## 🐘 Supported PostgreSQL
+
+Each chart line ships one PostgreSQL major, pinned by digest: this line ships **18** (`appVersion`
+in `Chart.yaml`). The `E2E matrix` workflow runs every cell below nightly and on every release;
+a major is supported, through `image.*`, while its cells are green there:
+
+| Major | Plain (`postgres:<major>-bookworm`) | pgvector (`pgvector/pgvector:0.8.7-pg<major>-bookworm`) |
+| --- | --- | --- |
+| 18 | failover, backup and PITR (also on every PR) | + vector extension, hnsw index, switchover and rejoin, PITR |
+| 17 | failover, backup and PITR | + vector extension, hnsw index, switchover and rejoin, PITR |
+| 16 | failover, backup and PITR | + vector extension, hnsw index, switchover and rejoin, PITR |
+| 15 | failover, backup and PITR | + vector extension, hnsw index, switchover and rejoin, PITR |
+
+A data directory made by another major refuses to start (code `1103`); see the major upgrade
+runbook. The agent image is published for `linux/amd64` and `linux/arm64`, and every image the
+chart pins has both variants.
+
 ## 📚 Docs
 
 - [Chart README](deployments/postgres-ha/README.md) and the [values reference](deployments/postgres-ha/VALUES.md)

@@ -55,7 +55,10 @@ Every value is also validated by `values.schema.json`. The chart
 | backup.verify.timeout | string | `"1h"` | How long the restore check may run. |
 | bootstrap.mode | string | `"initdb"` | initdb creates an empty cluster; restore restores a WAL-G backup. |
 | bootstrap.restore.backup | string | `"LATEST"` | Backup name, or LATEST. |
-| bootstrap.restore.prefix | string | `""` | WAL-G prefix holding the source backups. Empty uses backup.s3.prefix. |
+| bootstrap.restore.file.directory | string | `""` | Directory of the WAL-G store on that volume, for example the old cluster's name. Required with existingClaim. |
+| bootstrap.restore.file.existingClaim | string | `""` | Claim holding the source. Empty uses the cluster's own backup volume (backup.storage file). |
+| bootstrap.restore.prefix | string | `""` | WAL-G prefix holding the source backups (an s3 source). Empty uses the cluster's own backup storage. |
+| bootstrap.restore.source | string | `""` | Where the source backups are: s3 (prefix) or file (a volume, see file). Empty means s3 when prefix is set, otherwise the cluster's own storage. |
 | bootstrap.restore.targetExclusive | bool | `false` | Stop just before the target instead of just after it. |
 | bootstrap.restore.targetLSN | string | `""` | Recover up to this LSN. |
 | bootstrap.restore.targetName | string | `""` | Recover up to this named restore point. |

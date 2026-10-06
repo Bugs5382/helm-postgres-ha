@@ -16,4 +16,4 @@ for _ in $(seq 1 60); do
   sleep 2
 done
 kubectl label namespace "$NS" --overwrite pod-security.kubernetes.io/enforce=restricted pod-security.kubernetes.io/enforce-version=latest >/dev/null
-helm upgrade --install pg "$CHART" -n "$NS" -f "$HERE/values.yaml" --wait --timeout 6m
+helm upgrade --install pg "$CHART" -n "$NS" -f "$HERE/values.yaml" ${EXTRA_VALUES:+-f "$EXTRA_VALUES"} --wait --timeout 6m

@@ -45,6 +45,7 @@ const (
 	Fenced          = 1111
 	Roles           = 1112
 	RestoreTarget   = 1113
+	ArchiveInUse    = 1114
 )
 
 var entries = []apperr.Entry{
@@ -61,6 +62,7 @@ var entries = []apperr.Entry{
 	{Code: Fenced, Title: "fencing", Cause: "the primary could not renew the Lease in time and stopped PostgreSQL so it cannot accept writes", Category: apperr.CategoryUnavailable},
 	{Code: Roles, Title: "roles", Cause: "creating or updating roles and databases on the primary failed; it is retried", Category: apperr.CategoryInternal},
 	{Code: RestoreTarget, Title: "restore", Cause: "archive recovery ran out of WAL before the restore target; the member does not restart it, since the same WAL gives the same result", Category: apperr.CategoryInvalid},
+	{Code: ArchiveInUse, Title: "bootstrap", Cause: "the backup storage prefix already holds another cluster's backups or WAL; a new cluster refuses to archive into it until the prefix is changed or emptied", Category: apperr.CategoryInvalid},
 }
 
 // Registry returns the agent's registry.

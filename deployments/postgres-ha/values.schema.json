@@ -411,6 +411,27 @@
               "type": "string",
               "pattern": "^([a-z0-9]+://[^']+)?$"
             },
+            "source": {
+              "type": "string",
+              "enum": [
+                "",
+                "s3",
+                "file"
+              ]
+            },
+            "file": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "existingClaim": {
+                  "type": "string"
+                },
+                "directory": {
+                  "type": "string",
+                  "pattern": "^([A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*)?$"
+                }
+              }
+            },
             "targetTime": {
               "type": "string"
             },

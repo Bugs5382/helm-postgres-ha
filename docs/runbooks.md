@@ -84,6 +84,37 @@ helm install pgr ./deployments/postgres-ha -n restore --create-namespace \
   delete its volumes, and restore again with an earlier target or none.
 - The restored primary promotes at the target onto a new timeline, archives to its own prefix
   and takes a fresh base backup at once. The standbys clone from it.
+- That prefix (`backup.s3.prefix`) must be empty. A new cluster, whether from initdb or from a
+  restore out of another prefix, refuses to start while its prefix holds backups or WAL from an
+  earlier cluster, and logs code `1114`. Mixing two clusters' WAL in one prefix breaks the
+  standbys' timelines. Pick a new prefix, or empty the old one once nothing needs it.
+
+### Restoring from a file backend
+
+To restore from a WAL-G file store (`backup.storage: file` on the old cluster), set
+`bootstrap.restore.source: file`:
+
+```yaml
+bootstrap:
+  mode: restore
+  restore:
+    source: file
+    backup: LATEST                 # or a backup name from `wal-g backup-list`
+    targetName: before-upgrade     # or targetTime / targetLSN, or none
+    file:
+      existingClaim: old-backups   # the volume holding the store, mounted read-only
+      directory: pg                # the store's directory on it (the old cluster's name)
+```
+
+Without `existingClaim`, the directory is read from this release's own backup volume
+(`backup.storage: file`). The source never mixes with the new cluster's own storage: base backups
+and WAL are read only from the source, and the restored cluster archives to its own prefix, which
+must be empty.
+
+Before fetching anything, the agent lists the source's base backups. It stops with code `1109`
+and a clear message when the source directory is not reachable, holds no base backup, or does not
+hold the named backup; the message lists the backups it does hold. A target the archive cannot
+reach logs `1113`.
 
 ### The scheduled restore check
 
@@ -153,6 +184,11 @@ kubectl -n db get lease pg-backup -o jsonpath='{.metadata.annotations}{"\n"}'
 `postgres-ha/last-success` and `postgres-ha/last-backup` on the backup Lease record the last
 backup and the member that took it. `pgha_backup_last_success_timestamp_seconds` exports the same
 time from every member.
+
+A backup taken on a standby ends inside the primary's current WAL segment, so it can only be
+restored once that segment is archived. When the primary sees a new backup on the Lease, it
+switches WAL straight away (`pg_switch_wal()`), so the backup is restorable within seconds rather
+than after `archive_timeout` (300s).
 
 ## Certificates
 

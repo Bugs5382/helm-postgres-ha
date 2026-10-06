@@ -1,7 +1,8 @@
 name: Release
 # Publishes a release, and runs only when the maintainer publishes a GitHub
 # Release by hand. Nothing here runs on a push or a merge. It publishes:
-#   - the agent image, ghcr.io/bugs5382/helm-postgres-ha/pgha:X.Y.Z;
+#   - the agent image, ghcr.io/bugs5382/helm-postgres-ha/pgha:X.Y.Z, for
+#     linux/amd64 and linux/arm64;
 #   - the chart, with that image's digest pinned in its values, attached to
 #     the release;
 #   - the Helm repository on GitHub Pages (index.yaml on gh-pages);
@@ -24,6 +25,7 @@ env:
   CR_VERSION: 1.8.1
   CR_SHA256: 834046b27b00cd6ba451326875c1937d4f2b671063c2053e031434ade73002b5
   IMAGE: ghcr.io/bugs5382/helm-postgres-ha/pgha
+  PLATFORMS: linux/amd64,linux/arm64
   CHART_OCI: oci://ghcr.io/bugs5382/charts
 
 jobs:
@@ -78,19 +80,29 @@ jobs:
           printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
           printf '%s' "$GH_TOKEN" | helm registry login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
 
-      - name: 🐳 Build and push the agent image
+      # The default docker driver cannot push a multi-platform index.
+      - name: 🧰 Set up buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: 🐳 Build and push the agent image (linux/amd64, linux/arm64)
         id: image
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
-          docker buildx build --push --build-arg "VERSION=${VERSION}" \
+          docker buildx build --push --platform "${PLATFORMS}" --build-arg "VERSION=${VERSION}" \
             --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
             --label "org.opencontainers.image.version=${VERSION}" \
             -t "${IMAGE}:${VERSION}" .
           digest=$(docker buildx imagetools inspect "${IMAGE}:${VERSION}" --format '{{json .Manifest}}' | jq -r .digest)
+          # The digest the chart pins must be the index, listing every platform.
+          got=$(docker buildx imagetools inspect --raw "${IMAGE}@${digest}" \
+            | jq -r '[.manifests[]?.platform | select(.os != "unknown") | "\(.os)/\(.architecture)"] | sort | join(",")')
+          [ "$got" = "${PLATFORMS}" ] || { echo "::error::image index lists '${got}', want '${PLATFORMS}'"; exit 1; }
+          for p in ${PLATFORMS//,/ }; do docker pull -q --platform "$p" "${IMAGE}@${digest}" >/dev/null; done
+          bash scripts/ci/check-image-arch.sh "${IMAGE}@${digest}" ${PLATFORMS//,/ }
           echo "digest=${digest}" >> "$GITHUB_OUTPUT"
-          echo "Pushed ${IMAGE}:${VERSION}@${digest}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Pushed ${IMAGE}:${VERSION}@${digest} (${PLATFORMS})" >> "$GITHUB_STEP_SUMMARY"
 
       - name: 📌 Pin the release into the chart
         env:

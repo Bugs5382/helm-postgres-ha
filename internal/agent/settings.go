@@ -58,18 +58,10 @@ func (a *Agent) conninfo(pod, user, dbname string) string {
 	return strings.Join(parts, " ")
 }
 
-// restoreCommand fetches archived WAL from prefix, or from the cluster's own
-// storage when prefix is empty.
-func (a *Agent) restoreCommand(prefix string) string {
-	cmd := a.cfg.WalG() + ` wal-fetch "%f" "%p"`
-	if prefix != "" {
-		cmd = "WALG_S3_PREFIX=" + shellQuote(prefix) + " " + cmd
-	}
-	return cmd
-}
-
-func shellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+// restoreCommand fetches archived WAL from src, or from the cluster's own
+// storage when src has no prefix.
+func (a *Agent) restoreCommand(src pg.Source) string {
+	return src.ShellPrefix() + a.cfg.WalG() + ` wal-fetch "%f" "%p"`
 }
 
 // standbySettings follow holder, or nobody when holder is empty (a member
@@ -81,7 +73,7 @@ func (a *Agent) standbySettings(holder string) map[string]string {
 		s["primary_slot_name"] = cluster.SlotName(a.me)
 	}
 	if a.cfg.Backup.Enabled {
-		s["restore_command"] = a.restoreCommand("")
+		s["restore_command"] = a.restoreCommand(pg.Source{})
 	}
 	return s
 }
@@ -91,7 +83,7 @@ func (a *Agent) primarySettings() map[string]string {
 	// same in every role avoids a "cannot be changed" warning on each reload.
 	s := map[string]string{"synchronous_standby_names": a.syncNames, "recovery_target_timeline": "latest"}
 	if a.cfg.Backup.Enabled {
-		s["restore_command"] = a.restoreCommand("")
+		s["restore_command"] = a.restoreCommand(pg.Source{})
 	}
 	return s
 }
@@ -101,7 +93,7 @@ func (a *Agent) primarySettings() map[string]string {
 func (a *Agent) restoreSettings() map[string]string {
 	r := a.cfg.Bootstrap.Restore
 	s := map[string]string{
-		"restore_command":          a.restoreCommand(r.Prefix),
+		"restore_command":          a.restoreCommand(a.restoreSource()),
 		"recovery_target_timeline": "latest",
 	}
 	target := false

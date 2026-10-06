@@ -24,7 +24,7 @@ for ns in $SRC_NS $DST_NS; do
 done
 
 log "source cluster with WAL archiving and scheduled backups"
-helm upgrade --install pg "$CHART" -n $SRC_NS -f "$HERE/values.yaml" -f "$HERE/backup-values.yaml" \
+helm upgrade --install pg "$CHART" -n $SRC_NS -f "$HERE/values.yaml" -f "$HERE/backup-values.yaml" ${EXTRA_VALUES:+-f "$EXTRA_VALUES"} \
   --set backup.s3.prefix=s3://pgha/$SRC_NS --wait --timeout 5m >/dev/null || { NS=$SRC_NS dump; exit 1; }
 NS=$SRC_NS K="timeout 30 kubectl -n $SRC_NS" R=pg
 start_client
@@ -49,6 +49,18 @@ BY=$($K get lease pg-backup -o jsonpath='{.metadata.annotations.postgres-ha/last
 [ "$BY" != "$P" ] || fail "the backup ran on the primary, not a standby"
 log "  backup by standby $BY"
 
+log "the primary archives the standby backup's last WAL segment at once"
+# The segment holding the backup's end must be fetchable from the archive;
+# that is what a restore needs. Without the primary's WAL switch it waits for
+# archive_timeout (300s).
+FIN=$($K exec "$P" -c postgres -- /pgha/bin/wal-g backup-list --detail --json 2>/dev/null | jq -r 'max_by(.start_time).finish_lsn')
+# The backup needs WAL up to, not including, finish_lsn: the segment holding
+# the byte before it. A backup ending on a boundary needs no newer segment.
+SEG=$(sql "$P" "select pg_walfile_name('0/0'::pg_lsn + ($FIN - 1))")
+log "  backup ends at $(sql "$P" "select '0/0'::pg_lsn + $FIN"), in segment $SEG"
+seg_archived() { $K exec "$P" -c postgres -- /pgha/bin/wal-g wal-fetch "$SEG" /tmp/seg-check >/dev/null 2>&1; }
+wait_for 60 seg_archived || fail "segment $SEG with the backup's end was not archived (archive_timeout is 300s)"
+
 log "restore check: the scheduled job restores the latest backup and records the result"
 $K delete job verify-now --ignore-not-found >/dev/null
 $K create job verify-now --from=cronjob/pg-backup-verify >/dev/null
@@ -59,17 +71,20 @@ $K logs job/verify-now -c verify | grep -q '"message":"restore verified"' || fai
 log "two writes either side of the restore target"
 wait_for 60 app "drop table if exists pitr; create table pitr (v text)" || fail "app cannot write"
 app "insert into pitr values ('kept')"
+if [ "${PGVECTOR:-0}" = 1 ]; then
+  DB=app sql "$P" "create extension if not exists vector; create table vec (id int primary key, e vector(3)); insert into vec values (1, '[1,0,0]'), (2, '[0,1,0]'); create index on vec using hnsw (e vector_l2_ops)" >/dev/null
+fi
 sleep 2
 TARGET=$(sql "$P" "select now()::text")
 sleep 2
 app "insert into pitr values ('discarded')"
-sql "$P" "select pg_switch_wal()" >/dev/null
-caught_up() { [ "$(sql "$P" "select last_archived_wal >= pg_walfile_name(pg_current_wal_lsn() - 1) from pg_stat_archiver")" = "t" ]; }
+SWITCHED=$(sql "$P" "select pg_walfile_name(pg_switch_wal())")
+caught_up() { [ "$(sql "$P" "select coalesce(last_archived_wal >= '$SWITCHED', false) from pg_stat_archiver")" = "t" ]; }
 wait_for 60 caught_up || fail "the WAL with the second write was not archived"
 log "  target $TARGET"
 
 log "restore a new release to the target"
-helm upgrade --install pgr "$CHART" -n $DST_NS -f "$HERE/values.yaml" -f "$HERE/backup-values.yaml" \
+helm upgrade --install pgr "$CHART" -n $DST_NS -f "$HERE/values.yaml" -f "$HERE/backup-values.yaml" ${EXTRA_VALUES:+-f "$EXTRA_VALUES"} \
   --set backup.s3.prefix=s3://pgha/$DST_NS --set bootstrap.mode=restore \
   --set bootstrap.restore.prefix=s3://pgha/$SRC_NS --set-string "bootstrap.restore.targetTime=$TARGET" \
   --wait --timeout 8m >/dev/null || { NS=$DST_NS R=pgr dump; exit 1; }
@@ -79,6 +94,11 @@ wait_for 120 all_streaming || fail "restored cluster's standbys not streaming"
 P=$(primary)
 got=$(DB=app sql "$P" "select string_agg(v, ',' order by v) from pitr")
 [ "$got" = "kept" ] || fail "restored rows are '$got', want only 'kept'"
+if [ "${PGVECTOR:-0}" = 1 ]; then
+  near=$(DB=app sql "$P" "set enable_seqscan = off; select id from vec order by e <-> '[0.9,0.1,0]' limit 1")
+  [ "$near" = "1" ] || fail "pgvector after the restore: nearest is '$near', want 1"
+  log "  pgvector table and hnsw index restored"
+fi
 in_recovery "$P" && fail "restored primary is still in recovery"
 
 log "backup and point-in-time restore passed"

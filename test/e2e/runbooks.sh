@@ -67,8 +67,8 @@ prepare() {
     TARGET=$(sql "$P" "select now()::text")
     sleep 1
     sql "$P" "create table if not exists runbook_marker (at timestamptz default now()); insert into runbook_marker default values" >/dev/null
-    sql "$P" "select pg_switch_wal()" >/dev/null
-    archived_past() { [ "$(sql "$P" "select last_archived_wal >= pg_walfile_name(pg_current_wal_lsn() - 1) from pg_stat_archiver")" = "t" ]; }
+    SWITCHED=$(sql "$P" "select pg_walfile_name(pg_switch_wal())")
+    archived_past() { [ "$(sql "$P" "select coalesce(last_archived_wal >= '$SWITCHED', false) from pg_stat_archiver")" = "t" ]; }
     wait_for 60 archived_past || fail "the WAL after the restore target was not archived"
     ;;
   esac

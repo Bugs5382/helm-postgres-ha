@@ -133,6 +133,31 @@ jobs:
       - name: 🐘 Agent tests against real PostgreSQL
         run: go test -tags integration -count=1 ./internal/pg/
 
+      # pgha and wal-g in the agent image: any finding with a published fix
+      # fails (scripts/ci/vuln-gate.sh); findings with no fix are listed.
+      - name: 🛡️ Agent image vulnerability gate
+        env:
+          GOVULNCHECK_VERSION: v1.8.0
+        run: |
+          set -euo pipefail
+          go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"
+          dir=$(mktemp -d); cid=$(docker create ghcr.io/bugs5382/helm-postgres-ha/pgha:e2e)
+          for b in pgha wal-g; do docker cp -q "$cid:/usr/local/bin/$b" "$dir/$b"; done
+          docker rm -f "$cid" >/dev/null
+          for b in pgha wal-g; do
+            echo "== $b"
+            "$(go env GOPATH)/bin/govulncheck" -mode=binary -format json "$dir/$b" | bash scripts/ci/vuln-gate.sh
+          done
+
+      # The arm64 variant cross-compiles (no emulation); both binaries must be
+      # static executables for each CPU.
+      - name: 🦾 Agent image for linux/arm64
+        run: |
+          set -euo pipefail
+          docker buildx build --platform linux/arm64 --load -t pgha:arm64 --build-arg VERSION=e2e .
+          bash scripts/ci/check-image-arch.sh pgha:arm64 linux/arm64
+          bash scripts/ci/check-image-arch.sh ghcr.io/bugs5382/helm-postgres-ha/pgha:e2e linux/amd64
+
       - name: 🔧 Install helm and kind
         run: |
           set -euo pipefail

@@ -149,6 +149,9 @@ func (l *Local) Promote(ctx context.Context, wait time.Duration) (bool, error) {
 	return l.db.Promote(ctx, wait)
 }
 
+// SwitchWAL closes the current WAL segment so it is archived now.
+func (l *Local) SwitchWAL(ctx context.Context) error { return l.db.SwitchWAL(ctx) }
+
 // Slots lists replication slots.
 func (l *Local) Slots(ctx context.Context) ([]Slot, error) { return l.db.Slots(ctx) }
 
@@ -222,18 +225,13 @@ func (l *Local) Clone(ctx context.Context, conninfo string) error {
 	return l.install(dir)
 }
 
-// FetchBackup restores a WAL-G base backup from prefix (the cluster's own
-// storage when empty).
-func (l *Local) FetchBackup(ctx context.Context, prefix, name string) error {
+// FetchBackup restores a WAL-G base backup from src.
+func (l *Local) FetchBackup(ctx context.Context, src Source, name string) error {
 	dir, err := l.scratch("restore")
 	if err != nil {
 		return err
 	}
-	env := l.cfg.Env
-	if prefix != "" {
-		env = append(append([]string{}, env...), "WALG_S3_PREFIX="+prefix)
-	}
-	if _, err := l.runner.Run(ctx, env, l.cfg.WalG, "backup-fetch", dir, name); err != nil {
+	if _, err := l.runner.Run(ctx, src.Env(l.cfg.Env), l.cfg.WalG, "backup-fetch", dir, name); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Join(dir, "pg_wal", "archive_status"), 0o700); err != nil {

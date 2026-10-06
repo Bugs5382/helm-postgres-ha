@@ -58,6 +58,8 @@ type Node interface {
 	Ping(ctx context.Context) error
 	Status(ctx context.Context) (pg.Status, error)
 	Promote(ctx context.Context, wait time.Duration) (bool, error)
+	// SwitchWAL closes the current WAL segment so it is archived now.
+	SwitchWAL(ctx context.Context) error
 	Slots(ctx context.Context) ([]pg.Slot, error)
 	CreateSlot(ctx context.Context, name string) error
 	DropSlot(ctx context.Context, name string) error
@@ -72,8 +74,13 @@ type Node interface {
 	// Clone copies a running primary into the data directory and marks it a
 	// standby.
 	Clone(ctx context.Context, conninfo string) error
-	// FetchBackup restores a base backup into the data directory.
-	FetchBackup(ctx context.Context, prefix, name string) error
+	// FetchBackup restores a base backup from src into the data directory.
+	FetchBackup(ctx context.Context, src pg.Source, name string) error
+	// SourceBackups lists the base backups in a restore source.
+	SourceBackups(ctx context.Context, src pg.Source) ([]string, error)
+	// ArchiveUsed reports whether the cluster's own WAL-G storage already
+	// holds base backups or WAL.
+	ArchiveUsed(ctx context.Context) (bool, error)
 	// Rewind resynchronises the stopped data directory with a running
 	// primary and reports whether anything had to change.
 	Rewind(ctx context.Context, conninfo string) (bool, error)

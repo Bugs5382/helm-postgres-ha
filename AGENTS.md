@@ -51,6 +51,12 @@ server only) and the transport package is `internal/server` plus `internal/peer`
 ## Build, test, lint
 
 - Build: `go build ./...`; image: `docker build -t pgha:dev .`
+- Image dependencies: WAL-G is built from source at a pinned release and commit. `WALG_BUMPS` in
+  the `Dockerfile` raises its dependencies that have published fixes. CI runs govulncheck on
+  both binaries in the image, and `scripts/ci/vuln-gate.sh` fails on any finding with a fixed
+  version. Findings with no upstream fix are listed but do not fail: today, two aws-sdk-go v1
+  advisories in its S3 client-side encryption package (GO-2022-0635 and GO-2022-0646), and
+  GO-2026-5932 in golang.org/x/crypto.
 - Test: `go test ./...` (run under `systemd-run --user --scope -p MemoryMax=6G` on shared boxes)
 - Real PostgreSQL: `go test -tags integration ./internal/pg/` starts a primary and a streaming
   standby from the chart's pinned image in Docker and checks status, promotion and roles.
@@ -66,6 +72,10 @@ server only) and the transport package is `internal/server` plus `internal/peer`
   `test/e2e/run.sh`, `test/e2e/backup.sh` and `test/e2e/runbooks.sh`. The last one runs every
   `bash` block in `docs/runbooks.md` against the backup suite's release, so a runbook command
   that no longer works fails CI. CI does exactly this in `.github/workflows/checks.yaml`.
+- The `E2E matrix` workflow (`.github/workflows/e2e-matrix.yaml`) runs the failover and backup
+  suites, and `test/e2e/pgvector.sh` in pgvector cells, over PostgreSQL 15 to 18, plain and
+  pgvector, each image pinned by digest. It runs nightly, on a published release and on dispatch,
+  never per PR. Keep the README support table in step with its cells.
 - CI (`.github/workflows/checks.yaml`) has two required jobs:
   - `🧪 Checks` runs on every PR in a few minutes: the chart checks above, the release pin test
     and the e2e scope test.

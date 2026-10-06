@@ -27,7 +27,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	golog "github.com/Bugs5382/go-log"
@@ -203,7 +205,18 @@ func (a *Agent) startBootstrap() {
 	if a.restoring() {
 		a.startTask("restore", func(ctx context.Context) error {
 			r := a.cfg.Bootstrap.Restore
-			if err := a.node.FetchBackup(ctx, r.Prefix, r.Backup); err != nil {
+			src := a.restoreSource()
+			// Restoring from the cluster's own prefix continues its history;
+			// a restore from elsewhere starts a new one there.
+			if r.Prefix != "" {
+				if err := a.checkArchiveUnused(ctx); err != nil {
+					return err
+				}
+			}
+			if err := a.checkRestoreSource(ctx, src, r.Backup); err != nil {
+				return err
+			}
+			if err := a.node.FetchBackup(ctx, src, r.Backup); err != nil {
 				return errs.New(errs.Bootstrap, fmt.Errorf("fetch backup %s: %w", r.Backup, err))
 			}
 			if _, err := a.node.WriteAgentConf(a.restoreSettings()); err != nil {
@@ -214,10 +227,66 @@ func (a *Agent) startBootstrap() {
 		return
 	}
 	a.startTask("initdb", func(ctx context.Context) error {
+		if err := a.checkArchiveUnused(ctx); err != nil {
+			return err
+		}
 		if err := a.node.Initdb(ctx); err != nil {
 			return errs.New(errs.Bootstrap, err)
 		}
 		_, err := a.node.WriteAgentConf(a.primarySettings())
 		return err
 	})
+}
+
+// checkArchiveUnused refuses a new cluster's first data while its backup
+// storage holds another cluster's backups or WAL. Without backups nothing is
+// archived, so there is nothing to check.
+func (a *Agent) checkArchiveUnused(ctx context.Context) error {
+	if !a.cfg.Backup.Enabled {
+		return nil
+	}
+	used, err := a.node.ArchiveUsed(ctx)
+	if err != nil {
+		return errs.New(errs.Bootstrap, fmt.Errorf("check the backup storage before archiving into it: %w", err))
+	}
+	if used {
+		return errs.New(errs.ArchiveInUse, errors.New("the backup storage prefix already holds backups or WAL from another cluster; set backup.s3.prefix to an empty prefix, or empty this one"))
+	}
+	a.log.Info("backup storage is empty; bootstrapping")
+	return nil
+}
+
+// restoreSource is where a restore bootstrap reads backups and WAL from.
+func (a *Agent) restoreSource() pg.Source {
+	r := a.cfg.Bootstrap.Restore
+	if r.Prefix == "" {
+		return pg.Source{}
+	}
+	storage := r.Storage
+	if storage == "" {
+		storage = pg.StorageS3
+	}
+	return pg.Source{Storage: storage, Prefix: r.Prefix}
+}
+
+// checkRestoreSource refuses a restore whose source cannot be read, holds no
+// base backup, or does not hold the one asked for, before anything is
+// fetched.
+func (a *Agent) checkRestoreSource(ctx context.Context, src pg.Source, name string) error {
+	where := src.Prefix
+	if where == "" {
+		where = "the cluster's backup storage"
+	}
+	names, err := a.node.SourceBackups(ctx, src)
+	if err != nil {
+		return errs.New(errs.Bootstrap, fmt.Errorf("cannot read the restore source %s: %w", where, err))
+	}
+	if len(names) == 0 {
+		return errs.New(errs.Bootstrap, fmt.Errorf("the restore source %s holds no base backups", where))
+	}
+	if name != "" && name != "LATEST" && !slices.Contains(names, name) {
+		return errs.New(errs.Bootstrap, fmt.Errorf("backup %s is not in the restore source %s; it holds %s", name, where, strings.Join(names, ", ")))
+	}
+	a.log.Info("restore source checked", golog.F("source", where), golog.F("backups", len(names)), golog.F("backup", name))
+	return nil
 }
