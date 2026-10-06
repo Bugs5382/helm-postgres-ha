@@ -72,6 +72,10 @@ server only) and the transport package is `internal/server` plus `internal/peer`
   `test/e2e/run.sh`, `test/e2e/backup.sh` and `test/e2e/runbooks.sh`. The last one runs every
   `bash` block in `docs/runbooks.md` against the backup suite's release, so a runbook command
   that no longer works fails CI. CI does exactly this in `.github/workflows/checks.yaml`.
+- The `E2E matrix` workflow (`.github/workflows/e2e-matrix.yaml`) runs the failover and backup
+  suites, and `test/e2e/pgvector.sh` in pgvector cells, over PostgreSQL 15 to 18, plain and
+  pgvector, each image pinned by digest. It runs nightly, on a published release and on dispatch,
+  never per PR. Keep the README support table in step with its cells.
 - CI (`.github/workflows/checks.yaml`) has two required jobs:
   - `🧪 Checks` runs on every PR in a few minutes: the chart checks above, the release pin test
     and the e2e scope test.

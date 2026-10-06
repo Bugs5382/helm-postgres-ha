@@ -13,6 +13,10 @@ log "bootstrap: every member ready and both standbys streaming"
 kubectl -n "$NS" rollout status "sts/$R" --timeout=300s >/dev/null || fail "members not ready"
 wait_for 60 all_streaming || fail "standbys not streaming"
 P=$(primary); [ "$P" = "$(holder)" ] || fail "labelled primary $P is not the lease holder $(holder)"
+WANT_MAJOR=${PG_MAJOR:-$(sed -n 's/^appVersion: *"\{0,1\}\([0-9]*\).*/\1/p' "$CHART/Chart.yaml")}
+got=$(sql "$P" "select current_setting('server_version_num')::int / 10000")
+[ "$got" = "$WANT_MAJOR" ] || fail "the server runs PostgreSQL $got, the chart declares $WANT_MAJOR"
+log "  PostgreSQL $got, as declared"
 sync=$(sql "$P" "select string_agg(sync_state, ',' order by application_name) from pg_stat_replication")
 [ "$sync" = "quorum,quorum" ] || fail "standbys are not quorum synchronous: $sync"
 

@@ -1,0 +1,106 @@
+name: E2E matrix
+# The kind suites over every PostgreSQL major the agent supports, plain and
+# with pgvector. Each cell installs the chart with that cell's image, pinned
+# by digest, and runs the failover suite (which checks the server runs the
+# cell's major), the pgvector checks in pgvector cells, and the backup suite
+# with point-in-time restore. Nightly, on a published release and on manual
+# dispatch only: never on a pull request, where the default major already
+# runs in Checks. The support table in the README lists these cells.
+on:
+  schedule:
+    - cron: "41 5 * * *"
+  release:
+    types: [published]
+  workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+env:
+  HELM_VERSION: v4.2.0
+  HELM_SHA256: 97dbeb971be4ac4b27e3839976d9564c0fb35c6f3b1da89dd1e292d236af4096
+  KIND_VERSION: v0.33.0
+  KIND_SHA256: aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d
+  KIND_NODE_IMAGE: kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5
+  CERT_MANAGER_VERSION: v1.21.2
+  CERT_MANAGER_SHA256: e03b668ec8675214af6b0a671699d088f2601fa3878e0dbe1b41d3feafd1879f
+jobs:
+  cell:
+    name: 🐘 PostgreSQL ${{ matrix.major }} ${{ matrix.variant }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {major: "15", variant: plain, repository: library/postgres, tag: 15.19-bookworm, digest: "sha256:539ceaaae49b3a7c8a04467cf00cc6788d8e3f1675df41860d86eebc4c40524f"}
+          - {major: "16", variant: plain, repository: library/postgres, tag: 16.15-bookworm, digest: "sha256:efedf3595f1d6f415c08568ba171029bf54052e754cc9f030e3f2412b21f3d67"}
+          - {major: "17", variant: plain, repository: library/postgres, tag: 17.11-bookworm, digest: "sha256:639ab7ceb90e13123085b741fb31ef493fba25463002f6da665352e7b534b652"}
+          - {major: "18", variant: plain, repository: library/postgres, tag: 18.6-bookworm, digest: "sha256:3725f4e2499eef5134592b3b4ab79a543ed7f8e533b05b5b637af926630f6650"}
+          - {major: "15", variant: pgvector, repository: pgvector/pgvector, tag: 0.8.7-pg15-bookworm, digest: "sha256:47af0b65960b14f1c6945aa4ccae37836c632e9a6fe0eea9160936e616e5b2e9"}
+          - {major: "16", variant: pgvector, repository: pgvector/pgvector, tag: 0.8.7-pg16-bookworm, digest: "sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a"}
+          - {major: "17", variant: pgvector, repository: pgvector/pgvector, tag: 0.8.7-pg17-bookworm, digest: "sha256:ac08538c6f8b9904c33c8224c5e5706dbe760aca29db1d096972b4052c22a75d"}
+          - {major: "18", variant: pgvector, repository: pgvector/pgvector, tag: 0.8.7-pg18-bookworm, digest: "sha256:2358fcba361ed2233a5ed81b5fe4ca779ccb304120ce531a3bf51c0ed7e2bc11"}
+    env:
+      PG_MAJOR: ${{ matrix.major }}
+      PGVECTOR: ${{ matrix.variant == 'pgvector' && '1' || '0' }}
+      EXTRA_VALUES: ${{ github.workspace }}/cell-values.yaml
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: 🐳 Build the agent image
+        run: docker build -t ghcr.io/bugs5382/helm-postgres-ha/pgha:e2e --build-arg VERSION=e2e .
+
+      - name: 🧾 Cell values
+        env:
+          REPO: ${{ matrix.repository }}
+          TAG: ${{ matrix.tag }}
+          DIGEST: ${{ matrix.digest }}
+        run: |
+          set -euo pipefail
+          printf 'image:\n  registry: docker.io\n  repository: %s\n  tag: "%s"\n  digest: "%s"\n' "$REPO" "$TAG" "$DIGEST" > "$EXTRA_VALUES"
+          cat "$EXTRA_VALUES"
+
+      - name: 🔧 Install helm and kind
+        run: |
+          set -euo pipefail
+          bin="$RUNNER_TEMP/bin"; mkdir -p "$bin"; cd "$RUNNER_TEMP"
+          curl -fsSLo helm.tgz "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz"
+          echo "${HELM_SHA256}  helm.tgz" | sha256sum -c -
+          tar -xzf helm.tgz --strip-components=1 -C "$bin" linux-amd64/helm
+          curl -fsSLo "$bin/kind" "https://github.com/kubernetes-sigs/kind/releases/download/${KIND_VERSION}/kind-linux-amd64"
+          echo "${KIND_SHA256}  $bin/kind" | sha256sum -c -
+          chmod +x "$bin/kind"
+          echo "$bin" >> "$GITHUB_PATH"
+
+      - name: 📦 Create the kind cluster
+        run: |
+          set -euo pipefail
+          kind create cluster --name pgha-e2e --image "$KIND_NODE_IMAGE" --config test/e2e/kind.yaml --wait 180s
+          kind load docker-image ghcr.io/bugs5382/helm-postgres-ha/pgha:e2e --name pgha-e2e
+          curl -fsSLo cert-manager.yaml "https://github.com/cert-manager/cert-manager/releases/download/${CERT_MANAGER_VERSION}/cert-manager.yaml"
+          echo "${CERT_MANAGER_SHA256}  cert-manager.yaml" | sha256sum -c -
+          kubectl apply -f cert-manager.yaml
+          kubectl -n cert-manager rollout status deploy/cert-manager-webhook --timeout=180s
+
+      - name: 🔁 Failover tests
+        run: bash test/e2e/install.sh && bash test/e2e/run.sh
+
+      - name: 🧭 pgvector checks
+        if: matrix.variant == 'pgvector'
+        run: bash test/e2e/pgvector.sh
+
+      - name: 💾 Backup and restore tests
+        run: bash test/e2e/backup.sh
+
+      - name: 🧾 Cluster state on failure
+        if: failure()
+        run: |
+          for ns in db bk rs; do
+            kubectl -n "$ns" get pods,lease -o wide || true
+            for p in $(kubectl -n "$ns" get pods -o name 2>/dev/null); do
+              echo "--- $ns $p"; kubectl -n "$ns" logs "$p" --all-containers --tail=200 || true
+            done
+          done
