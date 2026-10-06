@@ -44,3 +44,6 @@
 - name: pack-size-approved
   color: "5319e7"
   description: "Intended npm package growth past the size gate (say why in the PR)."
+- name: e2e
+  color: "1d76db"
+  description: "Run the kind e2e suites on this PR even when no agent or chart paths changed."
