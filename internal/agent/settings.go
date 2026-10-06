@@ -64,10 +64,6 @@ func (a *Agent) restoreCommand(src pg.Source) string {
 	return src.ShellPrefix() + a.cfg.WalG() + ` wal-fetch "%f" "%p"`
 }
 
-func shellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
-}
-
 // standbySettings follow holder, or nobody when holder is empty (a member
 // waiting for an election replays its own WAL and reports its position).
 func (a *Agent) standbySettings(holder string) map[string]string {
