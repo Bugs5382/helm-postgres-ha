@@ -105,8 +105,8 @@ Nothing publishes on a merge. When the maintainer publishes a GitHub Release `vX
 
 Before the first release, once:
 
-- add the release App's client ID and private key as the `APP_CLIENT_ID` and `APP_PRIVATE_KEY`
-  repository secrets, with the App installed on this repository;
+- add the release App's client ID as the `APP_CLIENT_ID` repository variable and its private key
+  as the `APP_PRIVATE_KEY` repository secret, with the App installed on this repository;
 - if the release run warns that it could not turn on Pages, set Settings > Pages > Source to the
   `gh-pages` branch (root folder);
 - after it runs, make the `helm-postgres-ha/pgha` and `charts/postgres-ha` packages public in the
