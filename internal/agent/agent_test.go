@@ -978,6 +978,68 @@ func TestStuckStandbyRecloneAfterANoopRewind(t *testing.T) {
 	}
 }
 
+// crashLoop runs rounds in which postgres starts and dies at once, the way it
+// does on a data directory it cannot recover, for the given stretch of time.
+func crashLoop(h *harness, d time.Duration) {
+	step := 2 * time.Second
+	for spent := time.Duration(0); spent < d; spent += step {
+		h.tick()
+		h.node.mu.Lock()
+		h.node.running = false
+		h.node.mu.Unlock()
+		h.holderRenews(step)
+	}
+}
+
+// TestStandbyDyingOnStartupRejoins: postgres that exits during startup never
+// reaches the running-but-not-streaming check, so without this the member
+// restarts it forever.
+func TestStandbyDyingOnStartupRejoins(t *testing.T) {
+	h := newHarness(t, "pg-1", "pg-0", map[string]string{lease.SystemID: "100"})
+	standbyNode(h)
+	h.peers.set("pg-0", primaryPeer())
+	crashLoop(h, h.a.cfg.RejoinTimeout+5*time.Second)
+	h.tick()
+	if err := h.a.WaitTask(); err != nil {
+		t.Fatal(err)
+	}
+	if h.node.rewinds != 1 {
+		t.Fatalf("a standby dying on startup was not rejoined: rewinds=%d starts=%d", h.node.rewinds, h.node.starts)
+	}
+}
+
+func TestStandbyDyingOnStartupWaitsForAHealthyPrimary(t *testing.T) {
+	h := newHarness(t, "pg-1", "pg-0", map[string]string{lease.SystemID: "100"})
+	standbyNode(h)
+	h.peers.set("pg-0", down)
+	crashLoop(h, h.a.cfg.RejoinTimeout+5*time.Second)
+	if h.node.rewinds != 0 || h.node.signals[RejoinMarker] {
+		t.Fatalf("rejoined with no healthy primary: rewinds=%d", h.node.rewinds)
+	}
+}
+
+// A restart after a period of streaming is not a crash loop: the timer starts
+// again instead of carrying the time from before.
+func TestStandbyRestartAfterStreamingStartsAFreshTimer(t *testing.T) {
+	h := newHarness(t, "pg-1", "pg-0", map[string]string{lease.SystemID: "100"})
+	standbyNode(h)
+	h.peers.set("pg-0", primaryPeer())
+	h.tick()
+	h.node.mu.Lock()
+	h.node.streaming = true
+	h.node.mu.Unlock()
+	h.tick()
+	h.holderRenews(h.a.cfg.RejoinTimeout + time.Second)
+	h.tick()
+	h.node.mu.Lock()
+	h.node.streaming, h.node.running = false, false
+	h.node.mu.Unlock()
+	h.tick()
+	if h.node.rewinds != 0 || h.node.signals[RejoinMarker] {
+		t.Fatalf("one restart after streaming triggered a rejoin: rewinds=%d", h.node.rewinds)
+	}
+}
+
 // TestFailoverWaitsTheLeaseDurationNotTicks: failover timing follows how long
 // this member has seen the Lease unchanged, not how many rounds ran, so slow
 // or fast rounds do not move it.
