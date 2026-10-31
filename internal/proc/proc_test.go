@@ -26,6 +26,7 @@ OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 import (
 	"context"
 	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -57,7 +58,16 @@ func TestRunCapturesOutputAndErrors(t *testing.T) {
 	}
 }
 
+// The agent reaps as PID 1 in a Linux container, and zombies are read from /proc.
+func skipUnlessLinux(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS != "linux" {
+		t.Skip("reaping is Linux only")
+	}
+}
+
 func TestReapLeavesManagedChildren(t *testing.T) {
+	skipUnlessLinux(t)
 	r := New()
 	cmd := exec.Command("/bin/true")
 	if err := r.Start(cmd); err != nil {
@@ -77,6 +87,7 @@ func TestReapLeavesManagedChildren(t *testing.T) {
 }
 
 func TestReapCollectsUnmanagedZombies(t *testing.T) {
+	skipUnlessLinux(t)
 	r := New()
 	// Started outside the Runner, so nobody owns its exit status.
 	cmd := exec.Command("/bin/true")

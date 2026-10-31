@@ -61,6 +61,20 @@ func (a *Agent) follow(ctx context.Context, rec lease.Record, l local) {
 			a.startTask("rejoin", func(ctx context.Context) error { return a.rejoin(ctx, holder) })
 			return
 		}
+		// postgres that exits during startup never reaches the stuck check
+		// below, so the timer carries across restarts until it streams.
+		if a.following == holder && !a.notStreaming.IsZero() {
+			if stuck := a.now().Sub(a.notStreaming); stuck > a.cfg.RejoinTimeout {
+				if !a.holderIsPrimary(ctx, holder) {
+					a.wait("postgres keeps exiting, and the primary is not answering yet")
+					return
+				}
+				a.log.Warn("postgres keeps exiting on startup; rejoining", golog.F("upstream", holder), golog.F("stuck_ms", stuck.Milliseconds()))
+				_ = a.node.SetSignal(RejoinMarker, true)
+				a.notStreaming = time.Time{}
+				return
+			}
+		}
 		_ = a.node.SetSignal(pg.StandbySignal, true)
 		if _, err := a.node.WriteAgentConf(a.standbySettings(holder)); err != nil {
 			a.log.Error(err, "cannot write agent settings")
@@ -71,7 +85,10 @@ func (a *Agent) follow(ctx context.Context, rec lease.Record, l local) {
 			a.log.Error(err, "cannot start postgres")
 			return
 		}
-		a.following, a.notStreaming = holder, a.now()
+		if a.following != holder || a.notStreaming.IsZero() {
+			a.notStreaming = a.now()
+		}
+		a.following = holder
 		a.log.Info("started as a standby", golog.F("upstream", holder))
 		return
 	}

@@ -54,7 +54,8 @@ cannot repoint clients.
 8. **Rejoin.** Data that last ran read-write (or carries the `pgha.rejoin` marker) is rewound with
    `pg_rewind` before it follows anyone. If the rewind fails, the data directory is moved aside,
    never deleted, and the member is cloned again. A standby that cannot stream from a healthy
-   primary for `agent.rejoinTimeout` goes through the same path.
+   primary for `agent.rejoinTimeout` goes through the same path, and so does one whose postgres
+   keeps exiting during startup for that long.
 9. **Bootstrap.** With no data anywhere and no system identifier on the Lease, the lowest-ordinal
    member among a quorum that all report empty data directories runs `initdb` (or restores a
    backup). Every other empty member clones from the holder. A data directory whose system
