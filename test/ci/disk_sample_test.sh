@@ -3,6 +3,7 @@
 # test/chart/checks.sh.
 set -euo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
+export DISK_FLOOR_MB=6144
 # shellcheck source=../e2e/disk-sample.sh
 source "$ROOT/test/e2e/disk-sample.sh"
 WORK=$(mktemp -d)
@@ -16,7 +17,7 @@ fail_test() { echo "FAIL: $*"; exit 1; }
 FREE_MB=9000
 df() { printf '  Avail\n %sM\n' "$FREE_MB"; }
 docker() { echo "docker $*" >> "$CALLS"; [ "$1" != ps ] || echo node1; }
-sudo() { echo "sudo $*" >> "$CALLS"; }
+sudo() { echo "sudo $*" >> "$CALLS"; [ "$1" != find ] || echo '9 /var/log/big file.log'; }
 
 echo "-- plenty of free space saves nothing"
 : > "$CALLS"; rm -f "$EVIDENCE"; FREE_MB=9000
@@ -44,6 +45,9 @@ stop=$(grep -n 'docker stop' "$CALLS" | head -n 1 | cut -d: -f1)
 du=$(grep -n 'sudo du' "$CALLS" | head -n 1 | cut -d: -f1)
 [ "$stop" -lt "$du" ] || fail_test "measured before the nodes stopped"
 grep -q '/var/lib/docker/volumes' "$CALLS" || fail_test "the kind node volumes were not measured"
+
+grep -q 'sudo tail -c 2000 /var/log/big file.log' "$CALLS" || fail_test "the largest file was not read: $(cat "$CALLS")"
+[ ! -e "$EVIDENCE.files" ] || fail_test "the file list was left behind"
 
 echo "-- the evidence is saved once"
 : > "$CALLS"
