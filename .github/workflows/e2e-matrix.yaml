@@ -50,6 +50,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
+      - name: 💽 Sample disk use
+        run: nohup bash test/e2e/disk-sample.sh > "$RUNNER_TEMP/disk.log" 2>&1 &
+
       - name: 🐳 Build the agent image
         run: docker build -t ghcr.io/bugs5382/helm-postgres-ha/pgha:e2e --build-arg VERSION=e2e .
 
@@ -98,6 +101,9 @@ jobs:
       - name: 🧾 Cluster state on failure
         if: failure()
         run: |
+          df -BM || true
+          sudo docker system df || true
+          tail -n 60 "$RUNNER_TEMP/disk.log" || true
           for ns in db bk rs; do
             kubectl -n "$ns" get pods,lease -o wide || true
             for p in $(kubectl -n "$ns" get pods -o name 2>/dev/null); do
