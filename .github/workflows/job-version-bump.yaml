@@ -1,0 +1,70 @@
+name: Version Bump
+# Keeps Chart.yaml on main at the version the release draft will publish. It
+# runs after Release Drafter on every push to main, reads the draft and commits
+# the new version through the release App.
+#
+# The commit reaches main with no pull request, so the drafter leaves it out of
+# the notes. Its message stops the push workflows, so the drafter does not run
+# again and this job does not follow. The job also skips its own commit, and
+# set-chart-version.sh leaves nothing to commit when the chart already matches
+# or there is no draft. job-release.yaml still stamps the chart from the tag
+# when it packages a release, so the tag wins if a draft is renamed by hand.
+on:
+  workflow_run:
+    workflows: [Release Drafter]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: version-bump
+  cancel-in-progress: false
+
+jobs:
+  version_bump:
+    name: 🔢 Version Bump
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      !startsWith(github.event.workflow_run.head_commit.message, 'chore(pre-release):')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Create GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: Checkout main
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: main
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: 📝 Read the draft version
+        id: draft
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          tag=$(gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=30" \
+            --jq '[.[] | select(.draft)][0].tag_name // ""')
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
+      - name: 🔢 Set the chart version
+        env:
+          TAG: ${{ steps.draft.outputs.tag }}
+        run: bash scripts/release/set-chart-version.sh "$TAG"
+
+      - name: Commit the chart version
+        uses: stefanzweifel/git-auto-commit-action@d0b01107b5db882071f96de5dd4b54961ea93f4c # v7
+        with:
+          commit_message: "chore(pre-release): ${{ steps.draft.outputs.tag }} [skip ci]"
+          file_pattern: deployments/postgres-ha/Chart.yaml
+          commit_user_name: ${{ github.actor }}
+          commit_user_email: ${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com
+          commit_author: ${{ github.actor }} <${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com>

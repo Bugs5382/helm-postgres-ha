@@ -101,7 +101,14 @@ Nothing publishes on a merge. When the maintainer publishes a GitHub Release `vX
 4. adds it to the Helm repository on GitHub Pages (`index.yaml` on `gh-pages`, through
    chart-releaser). The first release creates `gh-pages` and turns Pages on.
 
-`main` keeps `agent.image.digest` empty; the release tag is the one source of the version.
+`main` keeps `agent.image.digest` empty, and the release tag decides the published version.
+
+Between releases, `.github/workflows/job-version-bump.yaml` runs after Release Drafter on every push
+to `main`. It reads the draft's tag and commits it to `Chart.yaml` through the release App with
+`scripts/release/set-chart-version.sh` (`test/release/chart_version_test.sh` covers it), so `main`
+shows the version the draft will publish. With no draft the chart stays at the last release. That
+commit has no pull request, so it stays out of the release notes. Until a release publishes, the
+agent image tag that `main` defaults to does not exist yet.
 
 Before the first release, once:
 
