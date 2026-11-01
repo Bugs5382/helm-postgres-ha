@@ -93,6 +93,11 @@ spec:
           image: {{ include "pgha.pgbouncerImage" . }}
           imagePullPolicy: {{ $pb.image.pullPolicy }}
           command: ["/usr/bin/pgbouncer", "/etc/pgbouncer/config/pgbouncer.ini"]
+          # Keep answering until the Service stops routing here.
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 5"]
           ports:
             - name: pgbouncer
               containerPort: 6432
