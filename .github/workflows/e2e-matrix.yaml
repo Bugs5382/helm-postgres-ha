@@ -99,11 +99,12 @@ jobs:
         run: bash test/e2e/backup.sh
 
       - name: 🧾 Cluster state on failure
-        if: failure()
+        if: failure() || cancelled()
         run: |
           df -BM || true
           sudo docker system df || true
           tail -n 60 "$RUNNER_TEMP/disk.log" || true
+          cat "$RUNNER_TEMP/disk-evidence.log" || true
           for n in $(kind get nodes --name pgha-e2e 2>/dev/null); do
             docker exec "$n" sh -c 'for p in $(pgrep -f pgbouncer.ini); do echo "$p $(grep ^State /proc/$p/status) $(cat /proc/$p/wchan)"; done' || true
           done
