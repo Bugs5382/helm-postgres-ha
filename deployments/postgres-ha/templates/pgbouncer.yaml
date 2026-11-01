@@ -1,3 +1,4 @@
+{{- if .Values.enabled }}
 {{- if .Values.pgbouncer.enabled }}
 {{- $name := include "pgha.name" . -}}
 {{- $pb := .Values.pgbouncer -}}
@@ -34,7 +35,7 @@ spec:
     spec:
       automountServiceAccountToken: false
       enableServiceLinks: false
-      {{- with .Values.imagePullSecrets }}
+      {{- with include "pgha.imagePullSecrets" . | fromYamlArray }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
@@ -208,4 +209,5 @@ spec:
     - name: postgres
       port: 5432
       targetPort: pgbouncer
+{{- end }}
 {{- end }}

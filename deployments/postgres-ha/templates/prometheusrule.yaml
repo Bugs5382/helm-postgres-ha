@@ -1,3 +1,4 @@
+{{- if .Values.enabled }}
 {{- if .Values.metrics.prometheusRule.enabled }}
 {{- $name := include "pgha.name" . -}}
 {{- $sel := printf "namespace=%q, service=%q" .Release.Namespace (printf "%s-metrics" $name) -}}
@@ -114,4 +115,5 @@ spec:
             description: "The {{ $name }}-backup-verify CronJob has not recorded a result for two days: suspended, failing to start, or failing before it records."
         {{- end }}
         {{- end }}
+{{- end }}
 {{- end }}

@@ -1,6 +1,11 @@
-{{/* The cluster name: every resource is named after it. */}}
+{{/*
+The cluster name: every resource is named after it. As a subchart it defaults
+to <release>-<chart or alias>, so it can't take the parent's own names.
+*/}}
 {{- define "pgha.name" -}}
-{{- default .Release.Name .Values.fullnameOverride | trunc 40 | trimSuffix "-" -}}
+{{- $default := .Release.Name -}}
+{{- if contains "/charts/" .Template.BasePath }}{{ $default = printf "%s-%s" .Release.Name .Chart.Name }}{{ end -}}
+{{- default $default .Values.fullnameOverride | trunc 40 | trimSuffix "-" -}}
 {{- end -}}
 
 {{- define "pgha.headless" -}}{{ include "pgha.name" . }}-headless{{- end -}}
@@ -37,16 +42,20 @@ app.kubernetes.io/instance: {{ include "pgha.name" . }}
 {{- define "pgha.image" -}}
 {{- $img := .image -}}
 {{- $tag := default .defaultTag $img.tag -}}
-{{- printf "%s/%s" $img.registry $img.repository -}}
+{{- printf "%s/%s" (default $img.registry .global.imageRegistry) $img.repository -}}
 {{- if $tag }}:{{ $tag }}{{ end -}}
 {{- if $img.digest }}@{{ $img.digest }}{{ end -}}
 {{- end -}}
 
-{{- define "pgha.postgresImage" -}}{{ include "pgha.image" (dict "image" .Values.image "defaultTag" "") }}{{- end -}}
-{{- define "pgha.agentImage" -}}{{ include "pgha.image" (dict "image" .Values.agent.image "defaultTag" .Chart.Version) }}{{- end -}}
-{{- define "pgha.postgresExporterImage" -}}{{ include "pgha.image" (dict "image" .Values.metrics.exporters.postgres.image "defaultTag" "") }}{{- end -}}
-{{- define "pgha.pgbouncerExporterImage" -}}{{ include "pgha.image" (dict "image" .Values.metrics.exporters.pgbouncer.image "defaultTag" "") }}{{- end -}}
-{{- define "pgha.pgbouncerImage" -}}{{ include "pgha.image" (dict "image" .Values.pgbouncer.image "defaultTag" "") }}{{- end -}}
+{{- define "pgha.imagePullSecrets" -}}
+{{- concat .Values.global.imagePullSecrets .Values.imagePullSecrets | toYaml -}}
+{{- end -}}
+
+{{- define "pgha.postgresImage" -}}{{ include "pgha.image" (dict "image" .Values.image "defaultTag" "" "global" .Values.global) }}{{- end -}}
+{{- define "pgha.agentImage" -}}{{ include "pgha.image" (dict "image" .Values.agent.image "defaultTag" .Chart.Version "global" .Values.global) }}{{- end -}}
+{{- define "pgha.postgresExporterImage" -}}{{ include "pgha.image" (dict "image" .Values.metrics.exporters.postgres.image "defaultTag" "" "global" .Values.global) }}{{- end -}}
+{{- define "pgha.pgbouncerExporterImage" -}}{{ include "pgha.image" (dict "image" .Values.metrics.exporters.pgbouncer.image "defaultTag" "" "global" .Values.global) }}{{- end -}}
+{{- define "pgha.pgbouncerImage" -}}{{ include "pgha.image" (dict "image" .Values.pgbouncer.image "defaultTag" "" "global" .Values.global) }}{{- end -}}
 
 {{/* Credential Secret names: the user's existingSecret, or the generated one. */}}
 {{- define "pgha.credSecret" -}}

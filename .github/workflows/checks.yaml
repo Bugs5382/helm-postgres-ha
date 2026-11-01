@@ -208,10 +208,13 @@ jobs:
       - name: ⬆️ Major-version upgrade test
         run: bash test/e2e/upgrade.sh
 
+      - name: 🧩 Subchart test
+        run: bash test/e2e/subchart.sh
+
       - name: 🧾 Cluster state on failure
         if: failure()
         run: |
-          for ns in db bk rs restore up-old up-new; do
+          for ns in db bk rs restore up-old up-new sub; do
             kubectl -n "$ns" get pods,lease -o wide || true
             for p in $(kubectl -n "$ns" get pods -o name 2>/dev/null); do
               echo "--- $ns $p"; kubectl -n "$ns" logs "$p" --all-containers --tail=200 || true

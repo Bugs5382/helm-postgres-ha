@@ -2,8 +2,19 @@
 # The defaults are production-safe: mutual TLS, NetworkPolicies, a PDB, hard
 # anti-affinity and quorum synchronous replication are all on.
 
-# -- Override the cluster name. Defaults to the release name. Every resource
-# is named after it (<name>-0..N-1, <name>-primary, <name>-replica, ...).
+# -- Set false to render nothing. An umbrella chart can point a dependency's
+# condition at this.
+enabled: true
+
+global:
+  # -- Registry for every image, in place of each image's own. For umbrella charts.
+  imageRegistry: ""
+  # -- Pull secrets for every pod, added to imagePullSecrets. For umbrella charts.
+  imagePullSecrets: []
+
+# -- Override the cluster name. Defaults to the release name, or to
+# <release>-<chart or alias> as a subchart. Every resource is named after it
+# (<name>-0..N-1, <name>-primary, <name>-replica, ...).
 fullnameOverride: ""
 
 # -- Number of members. Three or more gives a quorum for failover.

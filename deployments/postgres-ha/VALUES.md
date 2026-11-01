@@ -73,7 +73,10 @@ Every value is also validated by `values.schema.json`. The chart
 | credentials.superuser.existingSecret | string | `""` | Secret with the superuser (postgres) password. Empty generates one. |
 | credentials.superuser.passwordKey | string | `"password"` | Key in the Secret that holds the password. |
 | databases | list | `[{"extensions":[],"name":"app","owner":"app"}]` | Databases to create. Fields: name; owner (a listed role, or postgres); extensions (created in the database). |
-| fullnameOverride | string | `""` | Override the cluster name. Defaults to the release name. Every resource is named after it (<name>-0..N-1, <name>-primary, <name>-replica, ...). |
+| enabled | bool | `true` | Set false to render nothing. An umbrella chart can point a dependency's condition at this. |
+| fullnameOverride | string | `""` | Override the cluster name. Defaults to the release name, or to <release>-<chart or alias> as a subchart. Every resource is named after it (<name>-0..N-1, <name>-primary, <name>-replica, ...). |
+| global.imagePullSecrets | list | `[]` | Pull secrets for every pod, added to imagePullSecrets. For umbrella charts. |
+| global.imageRegistry | string | `""` | Registry for every image, in place of each image's own. For umbrella charts. |
 | image.digest | string | `"sha256:3725f4e2499eef5134592b3b4ab79a543ed7f8e533b05b5b637af926630f6650"` | Digest the tag is pinned to. Set both when you change the tag. |
 | image.pullPolicy | string | `"IfNotPresent"` | Image pull policy. |
 | image.registry | string | `"docker.io"` | Registry for the PostgreSQL image. |

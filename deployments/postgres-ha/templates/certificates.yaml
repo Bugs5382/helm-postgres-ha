@@ -1,3 +1,4 @@
+{{- if .Values.enabled }}
 {{- if .Values.tls.certManager.enabled }}
 {{- $name := include "pgha.name" . -}}
 {{- $ns := .Release.Namespace -}}
@@ -109,5 +110,6 @@ spec:
     rotationPolicy: Always
   issuerRef:
     {{- toYaml $issuer | nindent 4 }}
+{{- end }}
 {{- end }}
 {{- end }}

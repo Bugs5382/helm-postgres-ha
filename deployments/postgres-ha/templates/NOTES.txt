@@ -1,3 +1,4 @@
+{{- if .Values.enabled }}
 postgres-ha cluster {{ include "pgha.name" . }} with {{ .Values.replicas }} members.
 
 Read-write: {{ include "pgha.primary" . }}.{{ .Release.Namespace }}.svc:5432
@@ -14,3 +15,4 @@ Who is primary:
 
 Planned switchover:
   kubectl -n {{ .Release.Namespace }} exec {{ include "pgha.name" . }}-0 -c postgres -- /pgha/bin/pgha switchover --to any
+{{- end }}

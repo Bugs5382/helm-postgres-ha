@@ -1,3 +1,4 @@
+{{- if .Values.enabled }}
 {{- $name := include "pgha.name" . -}}
 apiVersion: v1
 kind: ServiceAccount
@@ -52,3 +53,4 @@ subjects:
   - kind: ServiceAccount
     name: {{ $name }}
     namespace: {{ .Release.Namespace }}
+{{- end }}

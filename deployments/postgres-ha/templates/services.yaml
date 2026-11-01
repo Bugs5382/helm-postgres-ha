@@ -1,3 +1,4 @@
+{{- if .Values.enabled }}
 {{- $name := include "pgha.name" . -}}
 # Governing Service: stable per-member DNS names, published before members
 # are ready so peers and clones can find each other.
@@ -85,3 +86,4 @@ spec:
       port: 9187
       targetPort: exporter
     {{- end }}
+{{- end }}
