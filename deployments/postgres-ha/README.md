@@ -82,6 +82,16 @@ with `pgbouncer.resources`, and the tools init container and hook Job with `agen
 - With cert-manager: a self-signed root, a CA Issuer and two certificates (members, PgBouncer).
 - Leases `pg` and `pg-backup`, kept on uninstall so a reinstall keeps the cluster's identity.
 
+## ⚠️ Known issues
+
+- **A PgBouncer pod can hang after a failover.** PgBouncer 1.26.1 can spin at full CPU when the
+  agent's `KILL` reaches a client that is still logging in. The fix is
+  [pgbouncer/pgbouncer#1640](https://github.com/pgbouncer/pgbouncer/pull/1640), which isn't in a
+  release yet. The liveness check restarts a hung pod after about a minute, and the other pod
+  carries traffic until then. With `pgbouncer.replicas: 1`, clients wait for that restart.
+- **A write through PgBouncer can time out while a pooler pod is replaced.** It was seen twice in
+  the test matrix and didn't reproduce in 2,400 writes, so the cause isn't known. Retry the write.
+
 ## 🧪 Tests
 
 `tests/` holds helm-unittest suites, and `test/chart/checks.sh` runs them with `helm lint` and

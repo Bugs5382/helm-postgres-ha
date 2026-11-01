@@ -241,3 +241,6 @@ the Service stops routing to it.
 A PgBouncer that stops answering on its admin console is restarted after about a minute. Its port
 staying open doesn't count, and the check needs nothing from PostgreSQL, so a failover doesn't
 restart it.
+
+Restarts after a failover can come from a PgBouncer bug. See the known
+issues in the [chart README](../deployments/postgres-ha/README.md).
