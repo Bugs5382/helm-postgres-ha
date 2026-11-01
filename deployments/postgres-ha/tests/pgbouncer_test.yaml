@@ -30,6 +30,14 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].lifecycle.preStop.exec.command
           value: ["/bin/sh", "-c", "sleep 5"]
+  - it: restarts a pooler whose admin console stops answering, not one that only holds its port open
+    documentSelector: {path: kind, value: Deployment}
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].livenessProbe.tcpSocket
+      - matchRegex:
+          path: spec.template.spec.containers[0].livenessProbe.exec.command[2]
+          pattern: "dbname=pgbouncer .*SHOW VERSION"
   - it: reads its login from the Secret the user names
     documentSelector: {path: kind, value: Deployment}
     set:

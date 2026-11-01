@@ -90,6 +90,17 @@ has_row() { [ "$(DB=app sql "$1" "select count(*) from e2e where v = '$2'" 2>/de
 # have committed, and the retry must not insert the row twice.
 app_write() { app "insert into e2e (v) select '$1' where not exists (select 1 from e2e where v = '$1')"; }
 
+# freeze_pooler stops pod's pgbouncer process from outside its container, so
+# the process stays alive and its port stays open but nothing answers.
+freeze_pooler() {
+  local pod=$1 node sandbox cid pid
+  node=$($K get pod "$pod" -o jsonpath='{.spec.nodeName}')
+  sandbox=$(docker exec "$node" crictl pods --name "$pod" -q)
+  cid=$(docker exec "$node" crictl ps -q --pod "$sandbox" --name pgbouncer)
+  pid=$(docker exec "$node" crictl inspect -o go-template --template '{{.info.pid}}' "$cid")
+  docker exec "$node" kill -STOP "$pid"
+}
+
 # pooler_report shows what the Service routed to and whether each pooler answers
 # directly, so a failed pooled connection shows which side lost it.
 pooler_report() {

@@ -104,6 +104,9 @@ jobs:
           df -BM || true
           sudo docker system df || true
           tail -n 60 "$RUNNER_TEMP/disk.log" || true
+          for n in $(kind get nodes --name pgha-e2e 2>/dev/null); do
+            docker exec "$n" sh -c 'for p in $(pgrep -f pgbouncer.ini); do echo "$p $(grep ^State /proc/$p/status) $(cat /proc/$p/wchan)"; done' || true
+          done
           for ns in db bk rs; do
             kubectl -n "$ns" get pods,lease -o wide || true
             for p in $(kubectl -n "$ns" get pods -o name 2>/dev/null); do
