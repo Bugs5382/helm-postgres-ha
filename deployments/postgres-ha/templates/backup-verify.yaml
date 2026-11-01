@@ -1,3 +1,4 @@
+{{- if .Values.enabled }}
 {{- if and .Values.backup.enabled .Values.backup.verify.enabled }}
 {{- $name := include "pgha.name" . -}}
 {{- $v := .Values.backup.verify -}}
@@ -70,7 +71,7 @@ spec:
           automountServiceAccountToken: true
           restartPolicy: Never
           enableServiceLinks: false
-          {{- with .Values.imagePullSecrets }}
+          {{- with include "pgha.imagePullSecrets" . | fromYamlArray }}
           imagePullSecrets:
             {{- toYaml . | nindent 12 }}
           {{- end }}
@@ -157,4 +158,5 @@ spec:
                 claimName: {{ include "pgha.backupClaim" . }}
                 readOnly: true
             {{- end }}
+{{- end }}
 {{- end }}

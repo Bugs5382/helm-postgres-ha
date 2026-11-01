@@ -1,3 +1,4 @@
+{{- if .Values.enabled }}
 {{- $name := include "pgha.name" . -}}
 {{- $owned := include "pgha.ownedSettings" . | fromJsonArray -}}
 {{- range $k, $_ := .Values.postgresql.parameters }}
@@ -100,3 +101,4 @@ data:
     {{- $dbs = append $dbs (dict "name" .name "owner" (default "postgres" .owner) "extensions" (default list .extensions)) -}}
     {{- end }}
     {{ dict "roles" $roles "databases" $dbs "pgbouncer" .Values.pgbouncer.enabled | toJson }}
+{{- end }}

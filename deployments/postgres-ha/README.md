@@ -38,6 +38,27 @@ A published chart runs the agent image released with it, pinned by digest.
 Clients need TLS: `sslmode=verify-full` with `ca.crt` from the `pg-tls` Secret. The app role's
 password is in `pg-role-<role>` (`username` and `password` keys).
 
+## 🧩 As a subchart
+
+Add the chart as a dependency and point its condition at `enabled`:
+
+```yaml
+dependencies:
+  - name: postgres-ha
+    version: 1.0.1
+    repository: https://bugs5382.github.io/helm-postgres-ha
+    condition: postgres-ha.enabled
+```
+
+Its values go under `postgres-ha:`, or under the alias. As a subchart the cluster is named
+`<release>-postgres-ha` (or `<release>-<alias>`), so the write Service is
+`<release>-postgres-ha-primary` and the app role's Secret is `<release>-postgres-ha-role-app`.
+`fullnameOverride` sets a fixed name instead. `postgresql.allowedCIDRs` is still required, and with
+NetworkPolicies on, your app's pods need a matching `networkPolicy.allowedClients` entry.
+
+`global.imageRegistry` replaces the registry of every image, and `global.imagePullSecrets` adds to
+each pod's pull secrets. Other `global` keys are ignored.
+
 ## ⚙️ Values
 
 Every value is validated by `values.schema.json` and listed in the generated

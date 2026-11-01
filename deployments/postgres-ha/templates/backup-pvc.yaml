@@ -1,3 +1,4 @@
+{{- if .Values.enabled }}
 {{- if and (include "pgha.fileBackup" .) (not .Values.backup.file.existingClaim) }}
 {{- $p := .Values.backup.file.persistence }}
 apiVersion: v1
@@ -19,4 +20,5 @@ spec:
   resources:
     requests:
       storage: {{ $p.size }}
+{{- end }}
 {{- end }}
