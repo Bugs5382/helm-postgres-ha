@@ -234,3 +234,6 @@ PgBouncer runs in `transaction` mode by default. In that mode session state does
 between transactions: session-level prepared statements across transactions, advisory locks,
 `LISTEN`/`NOTIFY`, `SET` without `LOCAL` and temporary tables do not work. Clients that need them
 connect to `pg-primary` directly or use `pgbouncer.poolMode: session`.
+
+A stopping PgBouncer pod waits 5 seconds before it gets the stop signal, so it keeps answering while
+the Service stops routing to it.

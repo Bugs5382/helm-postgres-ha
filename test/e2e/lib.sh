@@ -28,6 +28,14 @@ primary() {
 
 holder() { $K get lease "$R" -o jsonpath='{.spec.holderIdentity}'; }
 
+# lease_moved_from says the Lease has a new holder, labelled primary. The holder
+# is read once: a handover empties the Lease, so separate reads can see the old
+# holder and then nothing, which compares equal to no primary at all.
+lease_moved_from() {
+  local h; h=$(holder)
+  [ -n "$h" ] && [ "$h" != "$1" ] && [ "$(primary)" = "$h" ]
+}
+
 # sql runs SQL on a member as postgres over its local socket. DB picks the
 # database (default postgres).
 sql() {
@@ -81,6 +89,19 @@ has_row() { [ "$(DB=app sql "$1" "select count(*) from e2e where v = '$2'" 2>/de
 # app_write is idempotent: an attempt that timed out on the client may still
 # have committed, and the retry must not insert the row twice.
 app_write() { app "insert into e2e (v) select '$1' where not exists (select 1 from e2e where v = '$1')"; }
+
+# pooler_report shows what the Service routed to and whether each pooler answers
+# directly, so a failed pooled connection shows which side lost it.
+pooler_report() {
+  log "pooler state after the failed write"
+  $K get pods -l app.kubernetes.io/name=postgres-ha-pgbouncer -o wide || true
+  $K get endpointslices -l "kubernetes.io/service-name=$R-pgbouncer" -o yaml || true
+  local ip
+  for ip in $($K get pods -l app.kubernetes.io/name=postgres-ha-pgbouncer -o jsonpath='{.items[*].status.podIP}'); do
+    log "direct connection to $ip"
+    $K exec client -- env PGSSLMODE=require psql "host=$ip port=6432 user=app dbname=app" -XAtq -c 'select 1' || true
+  done
+}
 
 # start_client runs the psql client pod for release $R.
 start_client() {

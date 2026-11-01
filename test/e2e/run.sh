@@ -45,7 +45,7 @@ if $K exec client -- env PGSSLMODE=disable psql "host=$R-pgbouncer.$NS.svc user=
 fi
 POOLER=$($K get pods -l app.kubernetes.io/name=postgres-ha-pgbouncer -o jsonpath='{.items[0].metadata.name}')
 $K delete pod "$POOLER" --wait=false >/dev/null
-for _ in $(seq 1 10); do app_write pooler-drain || fail "a write failed while one pgbouncer pod was replaced"; sleep 0.5; done
+for _ in $(seq 1 10); do app_write pooler-drain || { pooler_report; fail "a write failed while one pgbouncer pod was replaced"; }; sleep 0.5; done
 kubectl -n "$NS" rollout status deploy/"$R-pgbouncer" --timeout=120s >/dev/null || fail "pgbouncer did not come back to two pods"
 
 log "network policy: only allowed clients reach the members and the pooler"

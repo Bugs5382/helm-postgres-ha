@@ -19,8 +19,7 @@ DB=app sql "$P" "create extension if not exists vector; drop table if exists vec
 
 log "pgvector: survives a switchover and the old primary's rejoin"
 $K exec "$P" -c postgres -- /pgha/bin/pgha switchover --to any >/dev/null
-moved() { [ -n "$(holder)" ] && [ "$(holder)" != "$P" ] && [ "$(primary)" = "$(holder)" ]; }
-wait_for 120 moved || fail "the switchover did not complete"
+wait_for 120 lease_moved_from "$P" || fail "the switchover did not complete"
 N=$(primary)
 wait_for 180 all_streaming || fail "cluster did not settle after the switchover"
 wait_for 60 member_streaming "$P" || fail "old primary $P did not rejoin as a streaming standby"
