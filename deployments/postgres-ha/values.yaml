@@ -297,8 +297,8 @@ pgbouncer:
   image:
     registry: docker.io
     repository: edoburu/pgbouncer
-    tag: "v1.26.0-p0"
-    digest: "sha256:b17551c776ef7e5769ef80b956d20f85e2fd25dd8912d31d58f782aad495b711"
+    tag: "v1.26.1-p0"
+    digest: "sha256:488422e38cff912895d0d65d8963fcd306e6ac589a724398b6eb8e294e94d624"
     pullPolicy: IfNotPresent
   # -- transaction pooling breaks session state (prepared statements across
   # transactions, advisory locks, LISTEN/NOTIFY); use session where needed.

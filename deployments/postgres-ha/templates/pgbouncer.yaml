@@ -111,10 +111,18 @@ spec:
                 - PGPASSWORD="$(cat /etc/pgbouncer/auth/password)" psql "host=127.0.0.1 port=6432 dbname=pgbouncer user=pgbouncer_auth sslmode=require connect_timeout=2" -XAtqc 'SHOW VERSION' >/dev/null
             periodSeconds: 5
             timeoutSeconds: 4
+          # The same console, because the kernel keeps accepting on the port after
+          # the event loop stops. It needs nothing from PostgreSQL and isn't
+          # counted against max_client_conn, so a busy pooler or a failover
+          # never restarts it.
           livenessProbe:
-            tcpSocket:
-              port: pgbouncer
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - PGPASSWORD="$(cat /etc/pgbouncer/auth/password)" psql "host=127.0.0.1 port=6432 dbname=pgbouncer user=pgbouncer_auth sslmode=require connect_timeout=2" -XAtqc 'SHOW VERSION' >/dev/null
             periodSeconds: 10
+            timeoutSeconds: 4
             failureThreshold: 6
           securityContext:
             allowPrivilegeEscalation: false

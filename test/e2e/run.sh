@@ -48,6 +48,15 @@ $K delete pod "$POOLER" --wait=false >/dev/null
 for _ in $(seq 1 10); do app_write pooler-drain || { pooler_report; fail "a write failed while one pgbouncer pod was replaced"; }; sleep 0.5; done
 kubectl -n "$NS" rollout status deploy/"$R-pgbouncer" --timeout=120s >/dev/null || fail "pgbouncer did not come back to two pods"
 
+log "pgbouncer: a pooler that stops answering is restarted, and the other one keeps service"
+POOLER=$($K get pods -l app.kubernetes.io/name=postgres-ha-pgbouncer -o jsonpath='{.items[0].metadata.name}')
+RESTARTS=$($K get pod "$POOLER" -o jsonpath='{.status.containerStatuses[?(@.name=="pgbouncer")].restartCount}')
+freeze_pooler "$POOLER"
+pooler_restarted() { [ "$($K get pod "$POOLER" -o jsonpath='{.status.containerStatuses[?(@.name=="pgbouncer")].restartCount}')" -gt "$RESTARTS" ]; }
+wait_for 120 pooler_restarted || { pooler_report; fail "the kubelet did not restart the frozen pooler $POOLER"; }
+kubectl -n "$NS" rollout status deploy/"$R-pgbouncer" --timeout=120s >/dev/null || fail "pgbouncer did not come back to two pods"
+wait_for 60 app_write after-pooler-freeze || { pooler_report; fail "writes did not resume after the pooler restart"; }
+
 log "network policy: only allowed clients reach the members and the pooler"
 image=$($K get sts "$R" -o jsonpath='{.spec.template.spec.containers[0].image}')
 sed -e "s|POSTGRES_IMAGE|$image|" -e "s|RELEASE|$R|g" -e 's|name: client|name: outsider|' -e 's|e2e-client: "true"|e2e-client: "false"|' "$HERE/client.yaml" | $K apply -f - >/dev/null

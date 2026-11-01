@@ -237,3 +237,7 @@ connect to `pg-primary` directly or use `pgbouncer.poolMode: session`.
 
 A stopping PgBouncer pod waits 5 seconds before it gets the stop signal, so it keeps answering while
 the Service stops routing to it.
+
+A PgBouncer that stops answering on its admin console is restarted after about a minute. Its port
+staying open doesn't count, and the check needs nothing from PostgreSQL, so a failover doesn't
+restart it.

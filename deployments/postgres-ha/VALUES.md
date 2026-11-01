@@ -98,7 +98,7 @@ Every value is also validated by `values.schema.json`. The chart
 | nodeSelector | object | `{}` | Node selector for the members. |
 | pgbouncer.defaultPoolSize | int | `25` | Server connections per user and database pair. |
 | pgbouncer.enabled | bool | `true` | Run PgBouncer in front of the primary. |
-| pgbouncer.image | object | `{"digest":"sha256:b17551c776ef7e5769ef80b956d20f85e2fd25dd8912d31d58f782aad495b711","pullPolicy":"IfNotPresent","registry":"docker.io","repository":"edoburu/pgbouncer","tag":"v1.26.0-p0"}` | PgBouncer image, pinned by digest. |
+| pgbouncer.image | object | `{"digest":"sha256:488422e38cff912895d0d65d8963fcd306e6ac589a724398b6eb8e294e94d624","pullPolicy":"IfNotPresent","registry":"docker.io","repository":"edoburu/pgbouncer","tag":"v1.26.1-p0"}` | PgBouncer image, pinned by digest. |
 | pgbouncer.maxClientConn | int | `500` | Most client connections each PgBouncer accepts. |
 | pgbouncer.maxDbConnections | int | `0` | Most server connections per database across all users (0: no limit). |
 | pgbouncer.poolMode | string | `"transaction"` | transaction pooling breaks session state (prepared statements across transactions, advisory locks, LISTEN/NOTIFY); use session where needed. |
