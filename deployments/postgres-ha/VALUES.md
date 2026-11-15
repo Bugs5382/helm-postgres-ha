@@ -95,6 +95,7 @@ Every value is also validated by `values.schema.json`. The chart
 | metrics.prometheusRule.replicationLagBytes | int | `104857600` | Replay lag, in bytes, that pages after 5 minutes. |
 | networkPolicy.allowedClients | list | `[]` | NetworkPolicy peers allowed to reach PostgreSQL and PgBouncer. |
 | networkPolicy.apiServer | object | `{"cidrs":["0.0.0.0/0"],"ports":[443,6443]}` | Where the API server lives, for the agent's egress. |
+| networkPolicy.cilium.enabled | bool | `false` | Also render a CiliumNetworkPolicy that lets the members reach the API server through Cilium's kube-apiserver entity. Turn it on when the CNI is Cilium: it does not match the API server with the CIDR rule above, and the members then never take the lease. |
 | networkPolicy.enabled | bool | `true` | Create NetworkPolicies for the members and PgBouncer. |
 | networkPolicy.extraEgress | list | `[]` | Extra egress rules for the postgres pods (object storage, for example). |
 | networkPolicy.metricsFrom | list | `[]` | Peers allowed to scrape the agent's metrics (port 8008). |

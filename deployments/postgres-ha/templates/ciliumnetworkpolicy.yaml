@@ -1,0 +1,29 @@
+{{- if .Values.enabled }}
+{{- if and .Values.networkPolicy.enabled .Values.networkPolicy.cilium.enabled }}
+{{- /*
+  Cilium gives the API server the kube-apiserver entity, not a CIDR identity, so the ipBlock rule
+  in networkpolicy.yaml never matches it. Cilium adds the allows of this policy to those of the
+  Kubernetes NetworkPolicy, so only the missing egress is declared here.
+*/ -}}
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ include "pgha.name" . }}-apiserver
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pgha.labels" . | nindent 4 }}
+spec:
+  endpointSelector:
+    matchLabels:
+      {{- include "pgha.selectorLabels" . | nindent 6 }}
+  egress:
+    - toEntities:
+        - kube-apiserver
+      toPorts:
+        - ports:
+            {{- range .Values.networkPolicy.apiServer.ports }}
+            - port: {{ . | quote }}
+              protocol: TCP
+            {{- end }}
+{{- end }}
+{{- end }}
