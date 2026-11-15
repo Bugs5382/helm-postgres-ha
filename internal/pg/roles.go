@@ -296,6 +296,18 @@ func (r *Reconciler) ensureDatabases(ctx context.Context, dbs []DatabaseSpec) er
 		} else if err := r.db.Exec(ctx, "postgres", "CREATE DATABASE "+QuoteIdent(d.Name)+" OWNER "+QuoteIdent(owner)); err != nil {
 			return fmt.Errorf("create database %q: %w", d.Name, err)
 		}
+		// PostgreSQL grants CONNECT on a new database to PUBLIC, so every role could open a session on
+		// every database. Close it and keep the owner's access (the superuser bypasses privileges).
+		// The agent's own logins (pgbouncer_auth, pgha_monitor, replicator, pgha_rewind) use the
+		// postgres database and the replication connection, never a listed database.
+		for _, stmt := range []string{
+			"REVOKE CONNECT ON DATABASE " + QuoteIdent(d.Name) + " FROM PUBLIC",
+			"GRANT CONNECT ON DATABASE " + QuoteIdent(d.Name) + " TO " + QuoteIdent(owner),
+		} {
+			if err := r.db.Exec(ctx, "postgres", stmt); err != nil {
+				return fmt.Errorf("restrict connections to database %q: %w", d.Name, err)
+			}
+		}
 		for _, ext := range d.Extensions {
 			if err := r.db.Exec(ctx, d.Name, "CREATE EXTENSION IF NOT EXISTS "+QuoteIdent(ext)); err != nil {
 				return fmt.Errorf("create extension %q in %q: %w", ext, d.Name, err)

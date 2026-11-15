@@ -70,7 +70,7 @@ Every value is validated by `values.schema.json` and listed in the generated
 | `postgresql.allowedCIDRs` | required | Address ranges `pg_hba.conf` accepts, TLS and SCRAM only. |
 | `postgresql.synchronous.mode` | `quorum` | `quorum`, `strict` or `off` (see the architecture doc). |
 | `postgresql.parameters` | sizing defaults | Extra `postgresql.conf` settings. Restart-only ones roll the pods; the rest are reloaded in place. |
-| `roles`, `databases` | `app` / `app` | Application roles (each with a generated or existing password Secret) and databases. |
+| `roles`, `databases` | `app` / `app` | Application roles (each with a generated or existing password Secret) and databases. Each database is closed to PUBLIC: only its owner (and the superuser) can connect, so a role cannot open a session on another role's database. |
 | `credentials.*.existingSecret` | generated | Bring your own superuser, replication, rewind or PgBouncer password. |
 | `tls.certManager.issuerRef` | per-release CA | Sign with your own CA issuer instead. |
 | `backup.enabled`, `backup.s3.*` | off | WAL archiving and scheduled base backups with WAL-G. |

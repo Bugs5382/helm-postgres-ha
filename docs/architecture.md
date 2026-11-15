@@ -87,7 +87,7 @@ rewrites it. The primary then creates or updates, idempotently:
 - `replicator` (replication);
 - `pgha_rewind` (the functions `pg_rewind` needs, nothing more);
 - `pgbouncer_auth` and the `pgbouncer.get_auth` lookup function, when PgBouncer is on;
-- the application roles and databases from values.
+- the application roles and databases from values. Each database has CONNECT revoked from PUBLIC and granted to its owner, so a role reaches only its own database.
 
 Passwords are sent as SCRAM verifiers, never as plain text, and only rewritten when they change.
 
