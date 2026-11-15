@@ -98,7 +98,7 @@ data:
     {{- end -}}
     {{- $dbs := list -}}
     {{- range .Values.databases -}}
-    {{- $dbs = append $dbs (dict "name" .name "owner" (default "postgres" .owner) "extensions" (default list .extensions)) -}}
+    {{- $dbs = append $dbs (dict "name" .name "owner" (default "postgres" .owner) "extensions" (default list .extensions) "connect" (default list .connect)) -}}
     {{- end }}
     {{ dict "roles" $roles "databases" $dbs "pgbouncer" .Values.pgbouncer.enabled | toJson }}
 {{- end }}

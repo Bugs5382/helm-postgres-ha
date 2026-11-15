@@ -308,6 +308,13 @@
             "items": {
               "type": "string"
             }
+          },
+          "connect": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z_][a-z0-9_]{0,62}$"
+            }
           }
         }
       }

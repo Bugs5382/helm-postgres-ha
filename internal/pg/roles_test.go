@@ -111,6 +111,65 @@ func TestReconcileFreshServer(t *testing.T) {
 	}
 }
 
+// A database must not stay open to PUBLIC: only its owner may connect (the superuser always can).
+func TestReconcileClosesDatabaseToPublic(t *testing.T) {
+	for name, existing := range map[string][]string{
+		"new database":      {"postgres", "template1"},
+		"existing database": {"postgres", "template1", "app"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := &fakeExec{passwords: map[string]string{"postgres": ""}, databases: existing}
+			if err := NewReconciler(f).Apply(context.Background(), spec(), creds(), readPW); err != nil {
+				t.Fatal(err)
+			}
+			for _, want := range []string{
+				`postgres: REVOKE CONNECT ON DATABASE "app" FROM PUBLIC`,
+				`postgres: GRANT CONNECT ON DATABASE "app" TO "app"`,
+			} {
+				if !f.has(want) {
+					t.Errorf("missing statement %q in\n%s", want, strings.Join(f.stmts, "\n"))
+				}
+			}
+			// The revoke comes after the database exists and before any extension work.
+			revoke, create := -1, -1
+			for i, s := range f.stmts {
+				if strings.Contains(s, "REVOKE CONNECT ON DATABASE") {
+					revoke = i
+				}
+				if strings.Contains(s, "CREATE DATABASE") || strings.Contains(s, "ALTER DATABASE") {
+					create = i
+				}
+			}
+			if revoke < create {
+				t.Errorf("REVOKE (%d) ran before the database was created or altered (%d)", revoke, create)
+			}
+		})
+	}
+}
+
+// Other roles that need a database are named in its connect list; nobody else gets in.
+func TestReconcileGrantsConnectToTheListedRoles(t *testing.T) {
+	sp := spec()
+	sp.Roles = append(sp.Roles, RoleSpec{Name: "reporting", PasswordFile: "reporting"})
+	sp.Databases[0].Connect = []string{"reporting"}
+	f := &fakeExec{passwords: map[string]string{"postgres": ""}, databases: []string{"postgres", "template1"}}
+	if err := NewReconciler(f).Apply(context.Background(), sp, creds(), readPW); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`postgres: REVOKE CONNECT ON DATABASE "app" FROM PUBLIC`,
+		`postgres: GRANT CONNECT ON DATABASE "app" TO "app"`,
+		`postgres: GRANT CONNECT ON DATABASE "app" TO "reporting"`,
+	} {
+		if !f.has(want) {
+			t.Errorf("missing statement %q in\n%s", want, strings.Join(f.stmts, "\n"))
+		}
+	}
+	if f.has(`TO PUBLIC`) {
+		t.Error("CONNECT must never be granted to PUBLIC")
+	}
+}
+
 func TestReconcileLeavesMatchingPasswords(t *testing.T) {
 	v := func(pw string) string {
 		s, err := ScramVerifier(pw)

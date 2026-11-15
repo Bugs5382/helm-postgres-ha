@@ -35,3 +35,5 @@ databases:
   - name: app
     owner: app
     extensions: [pgcrypto]
+    # reporting reads this database; every other role is refused.
+    connect: [reporting]

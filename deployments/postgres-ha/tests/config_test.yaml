@@ -47,7 +47,7 @@ tests:
       - equal:
           path: data["roles.json"]
           value: |
-            {"databases":[{"extensions":[],"name":"app","owner":"app"}],"pgbouncer":true,"roles":[{"connectionLimit":-1,"createdb":false,"createrole":false,"inRoles":[],"name":"app","passwordFile":"/etc/pgha/secrets/roles/app/password"}]}
+            {"databases":[{"connect":[],"extensions":[],"name":"app","owner":"app"}],"pgbouncer":true,"roles":[{"connectionLimit":-1,"createdb":false,"createrole":false,"inRoles":[],"name":"app","passwordFile":"/etc/pgha/secrets/roles/app/password"}]}
   - it: refuses settings the chart owns
     set:
       postgresql.parameters.primary_conninfo: host=elsewhere

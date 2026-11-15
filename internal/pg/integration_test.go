@@ -184,8 +184,8 @@ func TestRolesOnARealServer(t *testing.T) {
 	p, _, _ := pair(t)
 	ctx := context.Background()
 	spec := Spec{
-		Roles:     []RoleSpec{{Name: "app", PasswordFile: "x"}},
-		Databases: []DatabaseSpec{{Name: "appdb", Owner: "app", Extensions: []string{"pgcrypto"}}},
+		Roles:     []RoleSpec{{Name: "app", PasswordFile: "x"}, {Name: "other", PasswordFile: "y"}},
+		Databases: []DatabaseSpec{{Name: "appdb", Owner: "app", Extensions: []string{"pgcrypto"}}, {Name: "otherdb", Owner: "other"}},
 		PgBouncer: true,
 	}
 	creds := Credentials{Superuser: "su", Replication: "rep", Rewind: "rw", PgBouncer: "pb"}
@@ -215,6 +215,11 @@ func TestRolesOnARealServer(t *testing.T) {
 	grants, err := p.QueryStrings(ctx, "postgres", "SELECT has_function_privilege('pgbouncer_auth', 'pgbouncer.get_auth(text)', 'EXECUTE')::text || ',' || has_function_privilege('app', 'pgbouncer.get_auth(text)', 'EXECUTE')::text")
 	if err != nil || grants[0] != "true,false" {
 		t.Fatalf("lookup function grants (pgbouncer_auth, app) = %v, %v", grants, err)
+	}
+	// Each login connects to its own database only, on a new and on an existing database alike.
+	conn, err := p.QueryStrings(ctx, "postgres", "SELECT has_database_privilege('app', 'appdb', 'CONNECT')::text || ',' || has_database_privilege('app', 'otherdb', 'CONNECT')::text || ',' || has_database_privilege('other', 'otherdb', 'CONNECT')::text || ',' || has_database_privilege('other', 'appdb', 'CONNECT')::text")
+	if err != nil || conn[0] != "true,false,true,false" {
+		t.Fatalf("connect privileges (app on appdb, app on otherdb, other on otherdb, other on appdb) = %v, %v", conn, err)
 	}
 	ext, err := p.QueryStrings(ctx, "appdb", "SELECT extname::text FROM pg_extension WHERE extname = 'pgcrypto'")
 	if err != nil || len(ext) != 1 {
