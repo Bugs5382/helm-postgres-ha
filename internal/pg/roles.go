@@ -59,6 +59,9 @@ type DatabaseSpec struct {
 	Name       string   `json:"name"`
 	Owner      string   `json:"owner"`
 	Extensions []string `json:"extensions,omitempty"`
+	// Connect names the other roles that may connect to the database; the owner always may, and
+	// PUBLIC never.
+	Connect []string `json:"connect,omitempty"`
 }
 
 // Spec is the whole role and database spec the chart renders to roles.json.
@@ -300,10 +303,14 @@ func (r *Reconciler) ensureDatabases(ctx context.Context, dbs []DatabaseSpec) er
 		// every database. Close it and keep the owner's access (the superuser bypasses privileges).
 		// The agent's own logins (pgbouncer_auth, pgha_monitor, replicator, pgha_rewind) use the
 		// postgres database and the replication connection, never a listed database.
-		for _, stmt := range []string{
+		statements := []string{
 			"REVOKE CONNECT ON DATABASE " + QuoteIdent(d.Name) + " FROM PUBLIC",
 			"GRANT CONNECT ON DATABASE " + QuoteIdent(d.Name) + " TO " + QuoteIdent(owner),
-		} {
+		}
+		for _, role := range d.Connect {
+			statements = append(statements, "GRANT CONNECT ON DATABASE "+QuoteIdent(d.Name)+" TO "+QuoteIdent(role))
+		}
+		for _, stmt := range statements {
 			if err := r.db.Exec(ctx, "postgres", stmt); err != nil {
 				return fmt.Errorf("restrict connections to database %q: %w", d.Name, err)
 			}

@@ -147,6 +147,29 @@ func TestReconcileClosesDatabaseToPublic(t *testing.T) {
 	}
 }
 
+// Other roles that need a database are named in its connect list; nobody else gets in.
+func TestReconcileGrantsConnectToTheListedRoles(t *testing.T) {
+	sp := spec()
+	sp.Roles = append(sp.Roles, RoleSpec{Name: "reporting", PasswordFile: "reporting"})
+	sp.Databases[0].Connect = []string{"reporting"}
+	f := &fakeExec{passwords: map[string]string{"postgres": ""}, databases: []string{"postgres", "template1"}}
+	if err := NewReconciler(f).Apply(context.Background(), sp, creds(), readPW); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`postgres: REVOKE CONNECT ON DATABASE "app" FROM PUBLIC`,
+		`postgres: GRANT CONNECT ON DATABASE "app" TO "app"`,
+		`postgres: GRANT CONNECT ON DATABASE "app" TO "reporting"`,
+	} {
+		if !f.has(want) {
+			t.Errorf("missing statement %q in\n%s", want, strings.Join(f.stmts, "\n"))
+		}
+	}
+	if f.has(`TO PUBLIC`) {
+		t.Error("CONNECT must never be granted to PUBLIC")
+	}
+}
+
 func TestReconcileLeavesMatchingPasswords(t *testing.T) {
 	v := func(pw string) string {
 		s, err := ScramVerifier(pw)
