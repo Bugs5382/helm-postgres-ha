@@ -2,7 +2,7 @@ module github.com/Bugs5382/helm-postgres-ha
 
 go 1.26.0
 
-toolchain go1.26.10
+toolchain go1.26.11
 
 require (
 	github.com/Bugs5382/go-apperr v1.1.0

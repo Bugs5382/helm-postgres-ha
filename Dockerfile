@@ -2,7 +2,7 @@
 # The agent image: pgha and a static wal-g on a distroless base. It is never
 # run as the database itself; the chart's init container copies both binaries
 # into the official PostgreSQL image's pod.
-ARG GO_IMAGE=docker.io/library/golang:1.26.10-bookworm@sha256:23ce71337b726608afb1bc00986e630a05034a87a87ea1fc2cd1ae5cf33387eb
+ARG GO_IMAGE=docker.io/library/golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0
 ARG BASE_IMAGE=gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
 
 # Both Go stages run on the build machine and cross-compile for the target
@@ -21,7 +21,7 @@ ENV CGO_ENABLED=0 GOEXPERIMENT=jsonv2 GOFLAGS=-mod=mod
 # Dependencies with published fixes newer than the WAL-G release pins.
 # scripts/ci/vuln-gate.sh fails CI when the built binary has a fixable
 # finding, so drop an entry here once a WAL-G release includes it.
-ARG WALG_BUMPS="google.golang.org/grpc@v1.83.2 golang.org/x/crypto@v0.58.0 go.opentelemetry.io/otel/sdk@v1.45.0 golang.org/x/net@v0.62.0"
+ARG WALG_BUMPS="google.golang.org/grpc@v1.83.2 golang.org/x/crypto@2f1f834330b2 go.opentelemetry.io/otel/sdk@v1.45.0 golang.org/x/net@v0.62.0 github.com/klauspost/compress@v1.20.2"
 # hadolint ignore=SC2086
 RUN go get ${WALG_BUMPS} && go mod tidy
 RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath \
