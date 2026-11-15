@@ -19,6 +19,8 @@ roles:
 databases:
   - name: app
     owner: app
+    # reporting reads the app database it does not own; every other role is refused.
+    connect: [reporting]
 postgresql:
   allowedCIDRs: ["10.244.0.0/16"]
   parameters:
