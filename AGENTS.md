@@ -55,8 +55,7 @@ server only) and the transport package is `internal/server` plus `internal/peer`
   the `Dockerfile` raises its dependencies that have published fixes. CI runs govulncheck on
   both binaries in the image, and `scripts/ci/vuln-gate.sh` fails on any finding with a fixed
   version. Findings with no upstream fix are listed but do not fail: today, two aws-sdk-go v1
-  advisories in its S3 client-side encryption package (GO-2022-0635 and GO-2022-0646), and
-  GO-2026-5932 in golang.org/x/crypto.
+  advisories in its S3 client-side encryption package (GO-2022-0635 and GO-2022-0646).
 - Test: `go test ./...` (run under `systemd-run --user --scope -p MemoryMax=6G` on shared boxes)
 - Real PostgreSQL: `go test -tags integration ./internal/pg/` starts a primary and a streaming
   standby from the chart's pinned image in Docker and checks status, promotion and roles.

@@ -21,7 +21,7 @@ ENV CGO_ENABLED=0 GOEXPERIMENT=jsonv2 GOFLAGS=-mod=mod
 # Dependencies with published fixes newer than the WAL-G release pins.
 # scripts/ci/vuln-gate.sh fails CI when the built binary has a fixable
 # finding, so drop an entry here once a WAL-G release includes it.
-ARG WALG_BUMPS="google.golang.org/grpc@v1.83.2 golang.org/x/crypto@v0.58.0 go.opentelemetry.io/otel/sdk@v1.45.0 golang.org/x/net@v0.62.0"
+ARG WALG_BUMPS="google.golang.org/grpc@v1.83.2 golang.org/x/crypto@2f1f834330b2 go.opentelemetry.io/otel/sdk@v1.45.0 golang.org/x/net@v0.62.0 github.com/klauspost/compress@v1.20.2"
 # hadolint ignore=SC2086
 RUN go get ${WALG_BUMPS} && go mod tidy
 RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath \
