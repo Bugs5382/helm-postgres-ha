@@ -1,0 +1,48 @@
+suite: cilium network policy
+templates:
+  - ciliumnetworkpolicy.yaml
+tests:
+  - it: renders nothing by default
+    asserts:
+      - hasDocuments: {count: 0}
+  - it: renders nothing when the network policies are off
+    set:
+      networkPolicy: {enabled: false, cilium: {enabled: true}}
+    asserts:
+      - hasDocuments: {count: 0}
+  - it: lets the members reach the API server entity on the configured ports
+    set:
+      networkPolicy: {cilium: {enabled: true}}
+    asserts:
+      - hasDocuments: {count: 1}
+      - isKind: {of: CiliumNetworkPolicy}
+      - isAPIVersion: {of: cilium.io/v2}
+      - equal:
+          path: spec.endpointSelector.matchLabels
+          value: {app.kubernetes.io/name: postgres-ha, app.kubernetes.io/instance: RELEASE-NAME}
+      - equal:
+          path: spec.egress
+          value:
+            - toEntities: [kube-apiserver]
+              toPorts:
+                - ports:
+                    - {port: "443", protocol: TCP}
+                    - {port: "6443", protocol: TCP}
+  - it: follows the API server ports value
+    set:
+      networkPolicy: {cilium: {enabled: true}, apiServer: {ports: [6443]}}
+    asserts:
+      - equal:
+          path: spec.egress[0].toPorts[0].ports
+          value: [{port: "6443", protocol: TCP}]
+  - it: renders nothing when the chart is disabled
+    set:
+      enabled: false
+      networkPolicy: {cilium: {enabled: true}}
+    asserts:
+      - hasDocuments: {count: 0}
+  - it: refuses an unknown cilium key
+    set:
+      networkPolicy: {cilium: {enabld: true}}
+    asserts:
+      - failedTemplate: {}

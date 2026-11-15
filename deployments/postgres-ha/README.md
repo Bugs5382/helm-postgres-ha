@@ -80,12 +80,31 @@ Every value is validated by `values.schema.json` and listed in the generated
 | `pgbouncer.*` | on, 2 replicas | Pool mode, pool size, client limit. After a promotion the new primary drops every pooler's connections, so clients move over in seconds. |
 | `pgbouncer.sessionDatabases` | none | Databases pooled in session mode, for clients that need session state. |
 | `networkPolicy.allowedClients` | none | Pods and namespaces allowed to reach PostgreSQL and PgBouncer. |
+| `networkPolicy.cilium.enabled` | `false` | Renders a CiliumNetworkPolicy so the members reach the API server on Cilium (see below). |
 | `networkPolicy.extraEgress` | none | Extra egress for the members, such as object storage. |
 | `agent.leaseDuration`, `agent.renewDeadline` | `15s`, `10s` | Failover timing. The deadline must be shorter than the duration minus the retry period. |
 | `agent.maxLagOnFailover` | 1 MiB | How far behind a standby may be and still be promoted. |
 | `metrics.exporters.enabled` | off | postgres_exporter beside each member (local socket, `pgha_monitor` with `pg_monitor`) and pgbouncer_exporter beside each pooler. |
 | `metrics.prometheusRule.enabled` | off | Alerts: no primary, split brain, member not ready, replication lag, fencing, settings pending a restart, data volume filling, and with backups on, archiving failures, backup age and the restore check. |
 | `agent.logLevel` | `error` | `debug` in development clusters, `info` in staging. |
+
+## 🕸️ Cilium and other CNIs that treat the API server as an entity
+
+The agent takes its Lease from the API server, so the members must be able to reach it. The chart's
+NetworkPolicy allows that with an `ipBlock` rule (`networkPolicy.apiServer`). Cilium does not match
+the API server with a CIDR: it gives it the `kube-apiserver` entity, so the rule never matches, the
+agent logs `get lease ... context deadline exceeded`, and the member stays not ready. On Cilium set
+
+```yaml
+networkPolicy:
+  cilium:
+    enabled: true
+```
+
+This renders a CiliumNetworkPolicy named `<release>-apiserver` that allows egress from the members
+to `kube-apiserver` on `networkPolicy.apiServer.ports` (443 and 6443 by default). Cilium adds its
+allows to those of the NetworkPolicy, so nothing else changes. It needs the Cilium CRDs, which is
+why it is off by default. As a subchart, put it under the alias: `<alias>.networkPolicy.cilium.enabled`.
 
 ## 📏 Sizing
 

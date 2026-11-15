@@ -351,6 +351,11 @@ networkPolicy:
     ports: [443, 6443]
   # -- Extra egress rules for the postgres pods (object storage, for example).
   extraEgress: []
+  cilium:
+    # -- Also render a CiliumNetworkPolicy that lets the members reach the API server through
+    # Cilium's kube-apiserver entity. Turn it on when the CNI is Cilium: it does not match the API
+    # server with the CIDR rule above, and the members then never take the lease.
+    enabled: false
 
 podDisruptionBudget:
   # -- Create a PodDisruptionBudget for the members.

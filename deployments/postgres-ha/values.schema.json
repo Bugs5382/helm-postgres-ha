@@ -752,6 +752,15 @@
           "items": {
             "type": "object"
           }
+        },
+        "cilium": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          }
         }
       }
     },
