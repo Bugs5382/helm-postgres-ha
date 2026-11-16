@@ -29,6 +29,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sync"
 	"syscall"
 	"time"
@@ -97,6 +98,7 @@ func (s *Server) Start() error {
 	if s.cmd != nil {
 		return nil
 	}
+	s.clearStalePID()
 	cmd := exec.Command(s.binary, "-D", s.dataDir, "-c", "config_file="+s.configFile, "-c", "hba_file="+s.hbaFile) // #nosec G204 -- fixed binary and agent-owned paths
 	cmd.Env = s.env
 	cmd.Stdout = os.Stdout
@@ -123,6 +125,25 @@ func (s *Server) Start() error {
 		close(done)
 	}()
 	return nil
+}
+
+// clearStalePID removes the data directory's postmaster.pid. The agent is the
+// only supervisor of the postmaster and has no child here, so the file is left
+// from an earlier postmaster that did not stop cleanly (power loss, a killed
+// node). PostgreSQL refuses to start when the PID in it belongs to any live
+// process, and in a new container that can be an unrelated one, so a restart
+// would loop on "lock file postmaster.pid already exists". Crash recovery from
+// WAL does not need the file.
+func (s *Server) clearStalePID() {
+	path := filepath.Join(s.dataDir, "postmaster.pid")
+	err := os.Remove(path)
+	switch {
+	case err == nil:
+		s.log.Warn("removed a stale postmaster.pid left by an unclean stop", golog.F("path", path))
+	case !errors.Is(err, os.ErrNotExist):
+		// The start goes on: the postmaster reports it if the file blocks it.
+		s.log.Warn("could not remove postmaster.pid", golog.F("path", path), golog.F("error", err.Error()))
+	}
 }
 
 // LastFatal returns the FATAL or PANIC message the current or last
