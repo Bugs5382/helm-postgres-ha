@@ -1,0 +1,75 @@
+suite: restore from a Google Cloud Storage source
+templates: [statefulset.yaml, configmap.yaml]
+set:
+  postgresql.allowedCIDRs: ["10.244.0.0/16"]
+  bootstrap.mode: restore
+  backup.enabled: true
+  backup.storage: gs
+  backup.gs.prefix: gs://bucket/new
+  backup.gs.existingSecret: gcs-key
+  bootstrap.restore.prefix: gs://bucket/old
+tests:
+  - it: tells the agent the source is gs, from the prefix alone
+    template: statefulset.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: PGHA_RESTORE_PREFIX, value: gs://bucket/old}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: PGHA_RESTORE_STORAGE, value: gs}
+  - it: restores to a point in time and to a named restore point
+    template: statefulset.yaml
+    set:
+      bootstrap.restore.source: gs
+      bootstrap.restore.backup: base_000000010000000000000003
+      bootstrap.restore.targetName: before-upgrade
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: PGHA_RESTORE_BACKUP, value: base_000000010000000000000003}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: PGHA_RESTORE_TARGET_NAME, value: before-upgrade}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: PGHA_RESTORE_STORAGE, value: gs}
+  - it: passes a time target
+    template: statefulset.yaml
+    set:
+      bootstrap.restore.targetTime: "2026-10-04 17:05:46+00"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: PGHA_RESTORE_TARGET_TIME, value: "2026-10-04 17:05:46+00"}
+  - it: keeps the cluster's own gs credentials for the source
+    template: statefulset.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: GOOGLE_APPLICATION_CREDENTIALS, value: /etc/pgha/gcs/key.json}
+  - it: refuses a gs source when the cluster does not use gs
+    template: configmap.yaml
+    set:
+      backup.storage: s3
+      backup.s3.prefix: s3://b/p
+      backup.s3.existingSecret: s3
+    asserts:
+      - failedTemplate:
+          errorPattern: bootstrap.restore.source gs needs backup.enabled with backup.storage gs
+  - it: refuses a gs source whose prefix is not a gs URL
+    template: configmap.yaml
+    set:
+      bootstrap.restore.source: gs
+      bootstrap.restore.prefix: s3://bucket/old
+    asserts:
+      - failedTemplate:
+          errorPattern: bootstrap.restore.prefix must start with gs://
+  - it: refuses a gs source without a prefix
+    template: configmap.yaml
+    set:
+      bootstrap.restore.source: gs
+      bootstrap.restore.prefix: ""
+    asserts:
+      - failedTemplate:
+          errorPattern: bootstrap.restore.source gs needs bootstrap.restore.prefix

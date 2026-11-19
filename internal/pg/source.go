@@ -27,6 +27,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 )
 
@@ -34,9 +35,10 @@ import (
 const (
 	StorageS3   = "s3"
 	StorageFile = "file"
+	StorageGS   = "gs"
 )
 
-var prefixVars = []string{"WALG_S3_PREFIX", "WALG_FILE_PREFIX"}
+var prefixVars = []string{"WALG_S3_PREFIX", "WALG_FILE_PREFIX", "WALG_GS_PREFIX"}
 
 // Source is where a restore reads base backups and WAL from. An empty Prefix
 // means the cluster's own storage, as configured in its environment.
@@ -46,15 +48,18 @@ type Source struct {
 }
 
 func (s Source) prefixVar() string {
-	if s.Storage == StorageFile {
+	switch s.Storage {
+	case StorageFile:
 		return "WALG_FILE_PREFIX"
+	case StorageGS:
+		return "WALG_GS_PREFIX"
 	}
 	return "WALG_S3_PREFIX"
 }
 
 // Env returns base with the cluster's own WAL-G prefix replaced by the
 // source's. WAL-G picks one storage by which prefix variable is set, so the
-// other one must not be left behind.
+// others must not be left behind.
 func (s Source) Env(base []string) []string {
 	if s.Prefix == "" {
 		return base
@@ -62,7 +67,7 @@ func (s Source) Env(base []string) []string {
 	out := make([]string, 0, len(base)+1)
 	for _, e := range base {
 		k, _, _ := strings.Cut(e, "=")
-		if k == prefixVars[0] || k == prefixVars[1] {
+		if slices.Contains(prefixVars, k) {
 			continue
 		}
 		out = append(out, e)
@@ -76,7 +81,7 @@ func (s Source) ShellPrefix() string {
 	if s.Prefix == "" {
 		return ""
 	}
-	return "env -u " + prefixVars[0] + " -u " + prefixVars[1] + " " + s.prefixVar() + "=" + shellQuote(s.Prefix) + " "
+	return "env -u " + strings.Join(prefixVars, " -u ") + " " + s.prefixVar() + "=" + shellQuote(s.Prefix) + " "
 }
 
 func shellQuote(v string) string {

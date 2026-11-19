@@ -200,12 +200,14 @@ bootstrap:
   restore:
     # -- Backup name, or LATEST.
     backup: LATEST
-    # -- WAL-G prefix holding the source backups (an s3 source). Empty uses
-    # the cluster's own backup storage.
+    # -- WAL-G prefix holding the source backups (an s3:// or gs:// source).
+    # Empty uses the cluster's own backup storage.
     prefix: ""
-    # -- Where the source backups are: s3 (prefix) or file (a volume, see
-    # file). Empty means s3 when prefix is set, otherwise the cluster's own
-    # storage.
+    # -- Where the source backups are: s3 or gs (prefix), or file (a volume,
+    # see file). A gs source reads with the credentials in backup.gs, so the
+    # cluster must use backup.storage gs. Empty means gs when prefix starts
+    # with gs://, s3 when it is set otherwise, and the cluster's own storage
+    # without one.
     source: ""
     # A file source: a volume holding a WAL-G file store, mounted read-only.
     file:
@@ -226,7 +228,7 @@ bootstrap:
 
 backup:
   # -- Turn on WAL archiving and scheduled base backups with WAL-G, to
-  # backup.s3 or backup.file (see backup.storage).
+  # backup.s3, backup.gs or backup.file (see backup.storage).
   enabled: false
   # -- Cron schedule (UTC).
   schedule: "0 3 * * *"
@@ -238,8 +240,8 @@ backup:
   retainDays: 14
   # -- How long one base backup may run before it is stopped.
   timeout: 6h
-  # -- Where WAL-G stores base backups and WAL: s3 (backup.s3) or file (a
-  # mounted volume, backup.file).
+  # -- Where WAL-G stores base backups and WAL: s3 (backup.s3), gs (Google
+  # Cloud Storage, backup.gs) or file (a mounted volume, backup.file).
   storage: s3
   s3:
     # -- WAL-G prefix, for example s3://bucket/cluster.
@@ -252,6 +254,27 @@ backup:
     forcePathStyle: false
     # -- Secret with AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY.
     existingSecret: ""
+  # Google Cloud Storage, for backup.storage gs. WAL-G reads the key through
+  # GOOGLE_APPLICATION_CREDENTIALS, or the node's workload identity.
+  gs:
+    # -- WAL-G prefix, for example gs://bucket/cluster.
+    prefix: ""
+    # -- Secret holding the service account key (JSON). Mounted read-only on
+    # the members and the restore check. Leave empty with workloadIdentity.
+    existingSecret: ""
+    # -- Key of the service account JSON in that secret.
+    secretKey: key.json
+    # -- Use workload identity (or any other application default credential
+    # the pod gets from its environment) instead of a key: nothing is mounted.
+    # Set exactly one of this and existingSecret.
+    workloadIdentity: false
+    # -- Annotations for the members' and the restore check's service
+    # accounts, for example iam.gke.io/gcp-service-account for GKE workload
+    # identity.
+    serviceAccountAnnotations: {}
+    # -- Storage endpoint override, set as STORAGE_EMULATOR_HOST. For a
+    # GCS emulator such as fake-gcs-server; leave empty for Google.
+    endpoint: ""
   # A volume mounted on every member and on the restore check, for
   # backup.storage file. Every member archives to it and backs up into it, so
   # with more than one member it must be shared: ReadWriteMany, or a

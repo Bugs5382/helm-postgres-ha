@@ -116,6 +116,32 @@ and a clear message when the source directory is not reachable, holds no base ba
 hold the named backup; the message lists the backups it does hold. A target the archive cannot
 reach logs `1113`.
 
+### Restoring from Google Cloud Storage
+
+With `backup.storage: gs` the source is a `gs://` prefix. `source: gs` is optional when the prefix
+starts with `gs://`. The source is read with the same credentials as the cluster's own bucket
+(`backup.gs`), so the cluster must use `backup.storage: gs` too; a restore between S3 and GCS is
+not supported.
+
+```yaml
+backup:
+  enabled: true
+  storage: gs
+  gs:
+    prefix: gs://bucket/new-cluster    # must be empty
+    existingSecret: gcs-key
+bootstrap:
+  mode: restore
+  restore:
+    prefix: gs://bucket/old-cluster
+    backup: LATEST                     # or a backup name
+    targetTime: "2026-10-04 17:05:46+00"   # or targetName / targetLSN, or none
+```
+
+The checks of the file source apply: the agent lists the source first and stops with `1109` when it
+cannot be read, holds no base backup or lacks the named one, and `1113` reports an unreachable
+target.
+
 ### The scheduled restore check
 
 With backups on, the `pg-backup-verify` CronJob (`backup.verify`, daily at 05:00 UTC by default)
@@ -157,6 +183,33 @@ when the release is uninstalled. Set `backup.file.existingClaim` to use your own
   `metrics.prometheusRule.diskUsedPercent`.
 - To export, copy the prefix directory off the volume. It is a complete WAL-G store, and
   `WALG_FILE_PREFIX=<dir> wal-g backup-list` reads it anywhere.
+
+## Backups on Google Cloud Storage
+
+With `backup.storage: gs`, WAL-G archives WAL and writes base backups to `backup.gs.prefix`
+(`gs://bucket/cluster`). The service account needs object read, write, list and delete on the
+bucket (`roles/storage.objectAdmin`). Pick one way to authenticate:
+
+- **A key.** Put the service account JSON in a secret and set `backup.gs.existingSecret` (and
+  `backup.gs.secretKey` when the key is not `key.json`). The chart mounts it read-only at
+  `/etc/pgha/gcs` on the members and the restore check and sets `GOOGLE_APPLICATION_CREDENTIALS`.
+- **Workload identity.** Set `backup.gs.workloadIdentity: true` and mount nothing. On GKE, bind
+  the chart's service accounts to a Google service account and set
+  `backup.gs.serviceAccountAnnotations` to
+  `iam.gke.io/gcp-service-account: <name>@<project>.iam.gserviceaccount.com`; the chart puts it on the
+  members' and the restore check's service accounts. With a direct principal binding no
+  annotation is needed.
+
+Set exactly one. A NetworkPolicy matches addresses, not names, so allow the members egress on port
+443 to Google's published address ranges for `storage.googleapis.com` through
+`networkPolicy.extraEgress`. With workload identity they also need the metadata server your platform
+documents.
+
+WAL-G reads `WALG_GS_PREFIX` (the chart sets it; `WALE_GS_PREFIX` is the same setting under its
+WAL-E name) and Google's application default credentials, which is `GOOGLE_APPLICATION_CREDENTIALS`
+for a key. `backup.gs.endpoint` sets `STORAGE_EMULATOR_HOST` and exists for a GCS emulator such as
+fake-gcs-server; leave it empty for Google. Retention, the backup-age alert and the restore check
+work the same as with S3.
 
 ## Backup retention
 

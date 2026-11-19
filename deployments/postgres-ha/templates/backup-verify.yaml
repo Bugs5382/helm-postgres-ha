@@ -9,6 +9,7 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "pgha.labels" . | nindent 4 }}
+  {{- include "pgha.gcsAnnotations" . | nindent 2 }}
 automountServiceAccountToken: false
 ---
 # The restore check only records its outcome on the backup Lease.
@@ -142,6 +143,9 @@ spec:
                   mountPath: {{ .Values.backup.file.mountPath }}
                   readOnly: true
                 {{- end }}
+                {{- if include "pgha.gcsKey" . }}
+                {{- include "pgha.gcsKeyMount" . | nindent 16 }}
+                {{- end }}
           volumes:
             - name: tools
               emptyDir:
@@ -157,6 +161,9 @@ spec:
               persistentVolumeClaim:
                 claimName: {{ include "pgha.backupClaim" . }}
                 readOnly: true
+            {{- end }}
+            {{- if include "pgha.gcsKey" . }}
+            {{- include "pgha.gcsKeyVolume" . | nindent 12 }}
             {{- end }}
 {{- end }}
 {{- end }}

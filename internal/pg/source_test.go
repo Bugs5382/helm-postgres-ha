@@ -43,6 +43,18 @@ func TestSourceEnvReplacesTheOwnPrefixWithTheSources(t *testing.T) {
 	}
 }
 
+func TestSourceEnvForAGoogleStorageSource(t *testing.T) {
+	base := []string{"WALG_S3_PREFIX=s3://own/pg", "WALG_FILE_PREFIX=/b", "WALG_GS_PREFIX=gs://own/pg", "GOOGLE_APPLICATION_CREDENTIALS=/k"}
+	got := Source{Storage: StorageGS, Prefix: "gs://other/pg"}.Env(base)
+	want := []string{"GOOGLE_APPLICATION_CREDENTIALS=/k", "WALG_GS_PREFIX=gs://other/pg"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("env = %v, want %v", got, want)
+	}
+	if got := (Source{Storage: StorageGS, Prefix: "gs://b/p"}).ShellPrefix(); got != `env -u WALG_S3_PREFIX -u WALG_FILE_PREFIX -u WALG_GS_PREFIX WALG_GS_PREFIX='gs://b/p' ` {
+		t.Fatalf("shell prefix = %q", got)
+	}
+}
+
 func TestSourceWithoutAPrefixIsTheClustersOwnStorage(t *testing.T) {
 	base := []string{"WALG_S3_PREFIX=s3://own/pg"}
 	if got := (Source{}).Env(base); !slices.Equal(got, base) {
@@ -55,11 +67,11 @@ func TestSourceWithoutAPrefixIsTheClustersOwnStorage(t *testing.T) {
 
 func TestSourceShellPrefixUnsetsBothAndSetsOne(t *testing.T) {
 	got := Source{Storage: StorageFile, Prefix: "/restore-source/it's"}.ShellPrefix()
-	want := `env -u WALG_S3_PREFIX -u WALG_FILE_PREFIX WALG_FILE_PREFIX='/restore-source/it'\''s' `
+	want := `env -u WALG_S3_PREFIX -u WALG_FILE_PREFIX -u WALG_GS_PREFIX WALG_FILE_PREFIX='/restore-source/it'\''s' `
 	if got != want {
 		t.Fatalf("shell prefix = %q, want %q", got, want)
 	}
-	if got := (Source{Storage: StorageS3, Prefix: "s3://b/p"}).ShellPrefix(); got != `env -u WALG_S3_PREFIX -u WALG_FILE_PREFIX WALG_S3_PREFIX='s3://b/p' ` {
+	if got := (Source{Storage: StorageS3, Prefix: "s3://b/p"}).ShellPrefix(); got != `env -u WALG_S3_PREFIX -u WALG_FILE_PREFIX -u WALG_GS_PREFIX WALG_S3_PREFIX='s3://b/p' ` {
 		t.Fatalf("shell prefix = %q", got)
 	}
 }

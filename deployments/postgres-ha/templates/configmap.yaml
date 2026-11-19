@@ -7,7 +7,17 @@
 {{- $s3 := and .Values.backup.enabled (eq .Values.backup.storage "s3") -}}
 {{- if and $s3 (not .Values.backup.s3.prefix) }}{{ fail "backup.s3.prefix is required when backup.enabled is true" }}{{ end }}
 {{- if and $s3 (not .Values.backup.s3.existingSecret) }}{{ fail "backup.s3.existingSecret is required when backup.enabled is true" }}{{ end }}
+{{- $gs := and .Values.backup.enabled (eq .Values.backup.storage "gs") -}}
+{{- if and $gs (not .Values.backup.gs.prefix) }}{{ fail "backup.gs.prefix is required when backup.enabled is true and backup.storage is gs" }}{{ end }}
+{{- if and $gs (not (hasPrefix "gs://" .Values.backup.gs.prefix)) }}{{ fail "backup.gs.prefix must start with gs://" }}{{ end }}
+{{- if and $gs (not .Values.backup.gs.existingSecret) (not .Values.backup.gs.workloadIdentity) }}{{ fail "backup.gs.existingSecret is required unless backup.gs.workloadIdentity is true" }}{{ end }}
+{{- if and $gs .Values.backup.gs.existingSecret .Values.backup.gs.workloadIdentity }}{{ fail "backup.gs.existingSecret and backup.gs.workloadIdentity are mutually exclusive" }}{{ end }}
 {{- $rs := .Values.bootstrap.restore -}}
+{{- if and (eq .Values.bootstrap.mode "restore") (eq (include "pgha.restoreStorage" .) "gs") }}
+{{- if not $rs.prefix }}{{ fail "bootstrap.restore.source gs needs bootstrap.restore.prefix" }}{{ end }}
+{{- if not (hasPrefix "gs://" $rs.prefix) }}{{ fail "bootstrap.restore.prefix must start with gs:// for a gs source" }}{{ end }}
+{{- if not $gs }}{{ fail "bootstrap.restore.source gs needs backup.enabled with backup.storage gs: the members read the source with the credentials in backup.gs" }}{{ end }}
+{{- end }}
 {{- if and (eq .Values.bootstrap.mode "restore") (eq $rs.source "file") }}
 {{- if and (not $rs.file.existingClaim) (not (include "pgha.fileBackup" .)) }}{{ fail "bootstrap.restore.source file needs bootstrap.restore.file.existingClaim, or backup.storage file to read the cluster's own volume" }}{{ end }}
 {{- if and $rs.file.existingClaim (not $rs.file.directory) }}{{ fail "bootstrap.restore.file.directory is required with bootstrap.restore.file.existingClaim" }}{{ end }}

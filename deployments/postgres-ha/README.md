@@ -73,10 +73,10 @@ Every value is validated by `values.schema.json` and listed in the generated
 | `roles`, `databases` | `app` / `app` | Application roles (each with a generated or existing password Secret) and databases. Each database is closed to PUBLIC: only its owner (and the superuser) can connect, so a role cannot open a session on another role's database. A database's optional `connect` list names the other roles that may (for example a read-only reporting role). |
 | `credentials.*.existingSecret` | generated | Bring your own superuser, replication, rewind or PgBouncer password. |
 | `tls.certManager.issuerRef` | per-release CA | Sign with your own CA issuer instead. |
-| `backup.enabled`, `backup.s3.*` | off | WAL archiving and scheduled base backups with WAL-G. |
-| `backup.storage`, `backup.file.*` | `s3` | `file` keeps backups and WAL on a mounted volume instead of S3, for single-node installs or a local export path. |
+| `backup.enabled`, `backup.s3.*`, `backup.gs.*` | off | WAL archiving and scheduled base backups with WAL-G, to S3 or to Google Cloud Storage (a service account key, or workload identity). |
+| `backup.storage`, `backup.file.*` | `s3` | `gs` stores in Google Cloud Storage. `file` keeps backups and WAL on a mounted volume instead of S3, for single-node installs or a local export path. |
 | `backup.verify.*` | on with backups | A daily restore check into a throwaway server, recorded on the backup Lease. |
-| `bootstrap.mode`, `bootstrap.restore.*` | `initdb` | Restore a new release from a backup (S3 or a file store on a volume), optionally to a point in time or a named restore point. |
+| `bootstrap.mode`, `bootstrap.restore.*` | `initdb` | Restore a new release from a backup (S3, Google Cloud Storage or a file store on a volume), optionally to a point in time or a named restore point. |
 | `pgbouncer.*` | on, 2 replicas | Pool mode, pool size, client limit. After a promotion the new primary drops every pooler's connections, so clients move over in seconds. |
 | `pgbouncer.sessionDatabases` | none | Databases pooled in session mode, for clients that need session state. |
 | `networkPolicy.allowedClients` | none | Pods and namespaces allowed to reach PostgreSQL and PgBouncer. |
