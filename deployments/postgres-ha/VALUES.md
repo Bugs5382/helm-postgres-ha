@@ -27,7 +27,7 @@ Every value is also validated by `values.schema.json`. The chart
 | agent.rejoinTimeout | string | `"60s"` | A standby that cannot stream from a healthy primary for this long is rewound or re-cloned. |
 | agent.renewDeadline | string | `"10s"` | A primary that has not renewed for this long stops PostgreSQL (fencing). Must be shorter than leaseDuration minus retryPeriod. |
 | agent.retryPeriod | string | `"2s"` | Reconcile interval. |
-| backup.enabled | bool | `false` | Turn on WAL archiving and scheduled base backups with WAL-G, to backup.s3 or backup.file (see backup.storage). |
+| backup.enabled | bool | `false` | Turn on WAL archiving and scheduled base backups with WAL-G, to backup.s3, backup.gs or backup.file (see backup.storage). |
 | backup.env | object | `{}` | Extra WAL-G environment (WALG_*), for example compression settings. |
 | backup.file.existingClaim | string | `""` | An existing PersistentVolumeClaim to use instead of the chart's. |
 | backup.file.mountPath | string | `"/backup"` | Where the backup volume is mounted. |
@@ -35,6 +35,12 @@ Every value is also validated by `values.schema.json`. The chart
 | backup.file.persistence.size | string | `"20Gi"` | Size of the backup volume. |
 | backup.file.persistence.storageClassName | string | `""` | Empty uses the cluster default. |
 | backup.file.prefix | string | `""` | Directory on the volume WAL-G writes to. Empty uses the cluster name, so several releases can share one volume. |
+| backup.gs.endpoint | string | `""` | Storage endpoint override, set as STORAGE_EMULATOR_HOST. For a GCS emulator such as fake-gcs-server; leave empty for Google. |
+| backup.gs.existingSecret | string | `""` | Secret holding the service account key (JSON). Mounted read-only on the members and the restore check. Leave empty with workloadIdentity. |
+| backup.gs.prefix | string | `""` | WAL-G prefix, for example gs://bucket/cluster. |
+| backup.gs.secretKey | string | `"key.json"` | Key of the service account JSON in that secret. |
+| backup.gs.serviceAccountAnnotations | object | `{}` | Annotations for the members' and the restore check's service accounts, for example iam.gke.io/gcp-service-account for GKE workload identity. |
+| backup.gs.workloadIdentity | bool | `false` | Use workload identity (or any other application default credential the pod gets from its environment) instead of a key: nothing is mounted. Set exactly one of this and existingSecret. |
 | backup.retainDays | int | `14` | Backups newer than this many days are kept as well. |
 | backup.retainFull | int | `7` | Full backups always kept. |
 | backup.s3.endpoint | string | `""` | S3 endpoint URL for S3-compatible storage. Empty uses AWS. |
@@ -44,7 +50,7 @@ Every value is also validated by `values.schema.json`. The chart
 | backup.s3.region | string | `"us-east-1"` | S3 region. |
 | backup.schedule | string | `"0 3 * * *"` | Cron schedule (UTC). |
 | backup.source | string | `"standby"` | standby or primary. With standby, the primary steps in after 5 minutes. |
-| backup.storage | string | `"s3"` | Where WAL-G stores base backups and WAL: s3 (backup.s3) or file (a mounted volume, backup.file). |
+| backup.storage | string | `"s3"` | Where WAL-G stores base backups and WAL: s3 (backup.s3), gs (Google Cloud Storage, backup.gs) or file (a mounted volume, backup.file). |
 | backup.timeout | string | `"6h"` | How long one base backup may run before it is stopped. |
 | backup.verify.database | string | `"postgres"` | Database the check query runs in. |
 | backup.verify.enabled | bool | `true` | Run the scheduled restore check. Applies only when backups are on. |
@@ -57,8 +63,8 @@ Every value is also validated by `values.schema.json`. The chart
 | bootstrap.restore.backup | string | `"LATEST"` | Backup name, or LATEST. |
 | bootstrap.restore.file.directory | string | `""` | Directory of the WAL-G store on that volume, for example the old cluster's name. Required with existingClaim. |
 | bootstrap.restore.file.existingClaim | string | `""` | Claim holding the source. Empty uses the cluster's own backup volume (backup.storage file). |
-| bootstrap.restore.prefix | string | `""` | WAL-G prefix holding the source backups (an s3 source). Empty uses the cluster's own backup storage. |
-| bootstrap.restore.source | string | `""` | Where the source backups are: s3 (prefix) or file (a volume, see file). Empty means s3 when prefix is set, otherwise the cluster's own storage. |
+| bootstrap.restore.prefix | string | `""` | WAL-G prefix holding the source backups (an s3:// or gs:// source). Empty uses the cluster's own backup storage. |
+| bootstrap.restore.source | string | `""` | Where the source backups are: s3 or gs (prefix), or file (a volume, see file). A gs source reads with the credentials in backup.gs, so the cluster must use backup.storage gs. Empty means gs when prefix starts with gs://, s3 when it is set otherwise, and the cluster's own storage without one. |
 | bootstrap.restore.targetExclusive | bool | `false` | Stop just before the target instead of just after it. |
 | bootstrap.restore.targetLSN | string | `""` | Recover up to this LSN. |
 | bootstrap.restore.targetName | string | `""` | Recover up to this named restore point. |

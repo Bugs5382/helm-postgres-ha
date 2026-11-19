@@ -264,6 +264,9 @@ spec:
             - name: backup
               mountPath: {{ .Values.backup.file.mountPath }}
             {{- end }}
+            {{- if include "pgha.gcsKey" . }}
+            {{- include "pgha.gcsKeyMount" . | nindent 12 }}
+            {{- end }}
             {{- if and (include "pgha.restoreFile" .) .Values.bootstrap.restore.file.existingClaim }}
             - name: restore-source
               mountPath: /restore-source
@@ -312,6 +315,9 @@ spec:
         - name: backup
           persistentVolumeClaim:
             claimName: {{ include "pgha.backupClaim" . }}
+        {{- end }}
+        {{- if include "pgha.gcsKey" . }}
+        {{- include "pgha.gcsKeyVolume" . | nindent 8 }}
         {{- end }}
         {{- if and (include "pgha.restoreFile" .) .Values.bootstrap.restore.file.existingClaim }}
         - name: restore-source

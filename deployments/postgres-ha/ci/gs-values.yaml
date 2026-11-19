@@ -1,0 +1,13 @@
+# Google Cloud Storage: WAL-G archives and backs up to a bucket, with a
+# service account key from a secret.
+postgresql:
+  allowedCIDRs: ["10.244.0.0/16"]
+backup:
+  enabled: true
+  storage: gs
+  gs:
+    prefix: gs://bucket/cluster
+    existingSecret: gcs-key
+metrics:
+  prometheusRule:
+    enabled: true

@@ -8,7 +8,7 @@ CHART=$ROOT/deployments/postgres-ha
 KUBE_VERSION=${KUBE_VERSION:-1.34.0}
 CRDS='https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
 
-for v in default full file; do
+for v in default full file gs; do
   echo "== helm lint ($v)"
   helm lint --strict "$CHART" -f "$CHART/ci/$v-values.yaml"
   echo "== kubeconform ($v)"
@@ -39,6 +39,8 @@ rules() { helm template pg "$CHART" -n db -f "$CHART/ci/default-values.yaml" --s
   --set backup.enabled=true "$@" -s templates/prometheusrule.yaml | yq '.spec'; }
 rules --set backup.s3.prefix=s3://b/p --set backup.s3.existingSecret=s3 > "$RULES_DIR/s3.yaml"
 promtool check rules "$RULES_DIR/s3.yaml"
+rules --set backup.storage=gs --set backup.gs.prefix=gs://b/p --set backup.gs.workloadIdentity=true > "$RULES_DIR/gs.yaml"
+promtool check rules "$RULES_DIR/gs.yaml"
 # The file backend renders every backup rule plus the backup volume's, so the
 # unit tests run against it.
 rules --set backup.storage=file > "$RULES_DIR/rules.yaml"

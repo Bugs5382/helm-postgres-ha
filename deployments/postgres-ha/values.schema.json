@@ -436,6 +436,7 @@
               "enum": [
                 "",
                 "s3",
+                "gs",
                 "file"
               ]
             },
@@ -502,8 +503,39 @@
           "type": "string",
           "enum": [
             "s3",
+            "gs",
             "file"
           ]
+        },
+        "gs": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "prefix": {
+              "type": "string",
+              "pattern": "^(gs://[^'/][^']*)?$"
+            },
+            "existingSecret": {
+              "type": "string"
+            },
+            "secretKey": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._-]+$"
+            },
+            "workloadIdentity": {
+              "type": "boolean"
+            },
+            "serviceAccountAnnotations": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "endpoint": {
+              "type": "string",
+              "pattern": "^(https?://[^']+)?$"
+            }
+          }
         },
         "s3": {
           "type": "object",

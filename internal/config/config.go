@@ -63,7 +63,7 @@ type Restore struct {
 	// Prefix is the WAL-G storage prefix holding the source backups. Empty means
 	// the cluster's own prefix.
 	Prefix string
-	// Storage is the source's backend, s3 or file. Empty means s3 for a
+	// Storage is the source's backend, s3, gs or file. Empty means s3 for a
 	// Prefix, and the cluster's own backend without one.
 	Storage string
 	// At most one of the targets is set; none means recover to the end of WAL.

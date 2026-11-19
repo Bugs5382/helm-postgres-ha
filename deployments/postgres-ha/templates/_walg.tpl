@@ -3,6 +3,17 @@
 {{- if eq .Values.backup.storage "file" }}
 - name: WALG_FILE_PREFIX
   value: {{ include "pgha.backupPath" . | quote }}
+{{- else if eq .Values.backup.storage "gs" }}
+- name: WALG_GS_PREFIX
+  value: {{ .Values.backup.gs.prefix | quote }}
+{{- if .Values.backup.gs.existingSecret }}
+- name: GOOGLE_APPLICATION_CREDENTIALS
+  value: {{ printf "%s/%s" (include "pgha.gcsKeyDir" .) .Values.backup.gs.secretKey | quote }}
+{{- end }}
+{{- with .Values.backup.gs.endpoint }}
+- name: STORAGE_EMULATOR_HOST
+  value: {{ . | quote }}
+{{- end }}
 {{- else }}
 - name: WALG_S3_PREFIX
   value: {{ .Values.backup.s3.prefix | quote }}
@@ -47,6 +58,38 @@
 {{- default (printf "%s-backup" (include "pgha.name" .)) .Values.backup.file.existingClaim -}}
 {{- end -}}
 
+{{/* gcsKey is true when the members read a service account key from a secret. */}}
+{{- define "pgha.gcsKey" -}}
+{{- if and .Values.backup.enabled (eq .Values.backup.storage "gs") .Values.backup.gs.existingSecret }}true{{ end -}}
+{{- end -}}
+
+{{/* gcsAnnotations are the annotations workload identity needs on the service
+     accounts; empty otherwise. */}}
+{{- define "pgha.gcsAnnotations" -}}
+{{- if and .Values.backup.enabled (eq .Values.backup.storage "gs") .Values.backup.gs.serviceAccountAnnotations }}
+annotations:
+  {{- toYaml .Values.backup.gs.serviceAccountAnnotations | nindent 2 }}
+{{- end }}
+{{- end -}}
+
+{{/* gcsKeyDir is where the service account key secret is mounted. */}}
+{{- define "pgha.gcsKeyDir" -}}/etc/pgha/gcs{{- end -}}
+
+{{/* gcsKeyVolume is the secret volume holding the service account key. */}}
+{{- define "pgha.gcsKeyVolume" -}}
+- name: gcs-key
+  secret:
+    secretName: {{ .Values.backup.gs.existingSecret }}
+    defaultMode: 0440
+{{- end -}}
+
+{{/* gcsKeyMount mounts that volume read-only. */}}
+{{- define "pgha.gcsKeyMount" -}}
+- name: gcs-key
+  mountPath: {{ include "pgha.gcsKeyDir" . }}
+  readOnly: true
+{{- end -}}
+
 {{/* restoreFile is true when a restore bootstrap reads a file source. */}}
 {{- define "pgha.restoreFile" -}}
 {{- $r := .Values.bootstrap.restore -}}
@@ -55,10 +98,13 @@
 
 {{/* restoreStorage is the restore source's backend, as the agent reads it. */}}
 {{- define "pgha.restoreStorage" -}}
-{{- if include "pgha.restoreFile" . }}file{{ else if .Values.bootstrap.restore.prefix }}s3{{ end -}}
+{{- $r := .Values.bootstrap.restore -}}
+{{- if include "pgha.restoreFile" . }}file
+{{- else if or (eq $r.source "gs") (and (not $r.source) (hasPrefix "gs://" $r.prefix)) }}gs
+{{- else if $r.prefix }}s3{{ end -}}
 {{- end -}}
 
-{{/* restorePrefix is the source the agent restores from: the S3 prefix, a
+{{/* restorePrefix is the source the agent restores from: the S3 or gs prefix, a
      directory on the read-only source volume, or one on the cluster's own
      backup volume. Empty means the cluster's own storage. */}}
 {{- define "pgha.restorePrefix" -}}

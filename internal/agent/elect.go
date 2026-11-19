@@ -250,7 +250,7 @@ func (a *Agent) checkArchiveUnused(ctx context.Context) error {
 		return errs.New(errs.Bootstrap, fmt.Errorf("check the backup storage before archiving into it: %w", err))
 	}
 	if used {
-		return errs.New(errs.ArchiveInUse, errors.New("the backup storage prefix already holds backups or WAL from another cluster; set backup.s3.prefix to an empty prefix, or empty this one"))
+		return errs.New(errs.ArchiveInUse, errors.New("the backup storage prefix already holds backups or WAL from another cluster; set the backup prefix (backup.s3.prefix or backup.gs.prefix) to an empty one, or empty this one"))
 	}
 	a.log.Info("backup storage is empty; bootstrapping")
 	return nil

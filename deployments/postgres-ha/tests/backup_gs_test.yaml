@@ -1,0 +1,141 @@
+suite: backup to Google Cloud Storage
+templates: [statefulset.yaml, backup-verify.yaml, configmap.yaml, rbac.yaml]
+set:
+  postgresql.allowedCIDRs: ["10.244.0.0/16"]
+  backup.enabled: true
+  backup.storage: gs
+  backup.gs.prefix: gs://bucket/cluster
+  backup.gs.existingSecret: gcs-key
+tests:
+  - it: points WAL-G at the bucket and reads the key file, with no S3 settings
+    template: statefulset.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: WALG_GS_PREFIX, value: gs://bucket/cluster}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: GOOGLE_APPLICATION_CREDENTIALS, value: /etc/pgha/gcs/key.json}
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: {name: WALG_S3_PREFIX, value: ""}
+          any: true
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: {name: AWS_REGION, value: us-east-1}
+          any: true
+  - it: mounts the key secret read-only on the members
+    template: statefulset.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content: {name: gcs-key, mountPath: /etc/pgha/gcs, readOnly: true}
+      - contains:
+          path: spec.template.spec.volumes
+          content: {name: gcs-key, secret: {secretName: gcs-key, defaultMode: 288}}
+  - it: uses another key name in the secret
+    template: statefulset.yaml
+    set:
+      backup.gs.secretKey: sa.json
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: GOOGLE_APPLICATION_CREDENTIALS, value: /etc/pgha/gcs/sa.json}
+      - contains:
+          path: spec.template.spec.volumes
+          content: {name: gcs-key, secret: {secretName: gcs-key, defaultMode: 288}}
+  - it: sets the emulator endpoint when given
+    template: statefulset.yaml
+    set:
+      backup.gs.endpoint: http://fake-gcs:4443
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: STORAGE_EMULATOR_HOST, value: "http://fake-gcs:4443"}
+  - it: leaves the endpoint out by default
+    template: statefulset.yaml
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: {name: STORAGE_EMULATOR_HOST, value: ""}
+          any: true
+  - it: mounts the key and passes the settings to the restore check
+    template: backup-verify.yaml
+    documentSelector: {path: kind, value: CronJob}
+    asserts:
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].env
+          content: {name: WALG_GS_PREFIX, value: gs://bucket/cluster}
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.containers[0].volumeMounts
+          content: {name: gcs-key, mountPath: /etc/pgha/gcs, readOnly: true}
+      - contains:
+          path: spec.jobTemplate.spec.template.spec.volumes
+          content: {name: gcs-key, secret: {secretName: gcs-key, defaultMode: 288}}
+  - it: runs on workload identity with no secret and no key file
+    template: statefulset.yaml
+    set:
+      backup.gs.existingSecret: ""
+      backup.gs.workloadIdentity: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: WALG_GS_PREFIX, value: gs://bucket/cluster}
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: {name: GOOGLE_APPLICATION_CREDENTIALS, value: /etc/pgha/gcs/key.json}
+      - notContains:
+          path: spec.template.spec.volumes
+          content: {name: gcs-key, secret: {secretName: gcs-key, defaultMode: 288}}
+  - it: annotates the member service account for workload identity
+    template: rbac.yaml
+    documentIndex: 0
+    set:
+      backup.gs.existingSecret: ""
+      backup.gs.workloadIdentity: true
+      backup.gs.serviceAccountAnnotations:
+        iam.gke.io/gcp-service-account: pg@proj.iam.gserviceaccount.com
+    asserts:
+      - equal:
+          path: metadata.annotations["iam.gke.io/gcp-service-account"]
+          value: pg@proj.iam.gserviceaccount.com
+  - it: annotates the restore check service account too
+    template: backup-verify.yaml
+    documentSelector: {path: kind, value: ServiceAccount}
+    set:
+      backup.gs.existingSecret: ""
+      backup.gs.workloadIdentity: true
+      backup.gs.serviceAccountAnnotations:
+        iam.gke.io/gcp-service-account: pg@proj.iam.gserviceaccount.com
+    asserts:
+      - equal:
+          path: metadata.annotations["iam.gke.io/gcp-service-account"]
+          value: pg@proj.iam.gserviceaccount.com
+  - it: refuses a missing prefix
+    template: configmap.yaml
+    set:
+      backup.gs.prefix: ""
+    asserts:
+      - failedTemplate:
+          errorPattern: backup.gs.prefix is required
+  - it: rejects a prefix that is not a gs URL
+    template: configmap.yaml
+    set:
+      backup.gs.prefix: s3://bucket/cluster
+    asserts:
+      - failedTemplate:
+          errorPattern: does not match pattern
+  - it: refuses no credentials and no workload identity
+    template: configmap.yaml
+    set:
+      backup.gs.existingSecret: ""
+    asserts:
+      - failedTemplate:
+          errorPattern: backup.gs.existingSecret is required unless backup.gs.workloadIdentity
+  - it: refuses a secret together with workload identity
+    template: configmap.yaml
+    set:
+      backup.gs.workloadIdentity: true
+    asserts:
+      - failedTemplate:
+          errorPattern: backup.gs.existingSecret and backup.gs.workloadIdentity are mutually exclusive
